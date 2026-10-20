@@ -1,0 +1,10 @@
+DROP TABLE IF EXISTS consultation_reminders;
+DROP TABLE IF EXISTS resume_analyses;
+DROP TABLE IF EXISTS consultation_history;
+DROP TABLE IF EXISTS consultations;
+DROP TABLE IF EXISTS uploaded_files;
+DROP TABLE IF EXISTS consultation_slots;
+DROP TABLE IF EXISTS consultant_profiles;
+DROP TABLE IF EXISTS users;
+DROP EXTENSION IF EXISTS btree_gist;
+DROP EXTENSION IF EXISTS pgcrypto;

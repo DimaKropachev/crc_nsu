@@ -1,0 +1,312 @@
+openapi: 3.0.3
+info:
+  title: NSU Career Consultation API
+  version: 1.0.0
+  description: API для VK Mini App записи на карьерные консультации НГУ.
+servers:
+  - url: /api/v1
+security:
+  - BearerAuth: []
+paths:
+  /health/live:
+    get:
+      security: []
+      summary: Проверка жизни процесса
+      responses:
+        '200': { description: Процесс работает }
+  /health/ready:
+    get:
+      security: []
+      summary: Проверка готовности сервиса и PostgreSQL
+      responses:
+        '200': { description: Готов }
+        '503': { description: Не готов }
+  /auth/vk:
+    post:
+      security: []
+      summary: Проверка параметров запуска VK и выдача access token
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [launch_params]
+              properties:
+                launch_params: { type: string }
+      responses:
+        '200': { description: Пользователь и токен }
+        '401': { description: Подпись VK не прошла проверку }
+        '503': { description: VK auth not configured }
+  /me:
+    get:
+      summary: Текущий пользователь
+      responses:
+        '200': { description: Профиль пользователя }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+  /me/notification-consent:
+    post:
+      summary: Установить или отозвать согласие на напоминания в VK
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [enabled]
+              properties:
+                enabled: { type: boolean }
+      responses:
+        '200': { description: Текущий статус согласия }
+  /consultants:
+    get:
+      summary: Список активных консультантов
+      responses:
+        '200': { description: Список консультантов }
+  /consultants/{id}:
+    get:
+      summary: Публичный профиль консультанта
+      parameters: [{ $ref: '#/components/parameters/ID' }]
+      responses:
+        '200': { description: Консультант }
+        '404': { $ref: '#/components/responses/NotFound' }
+  /consultants/{id}/slots:
+    get:
+      summary: Доступные слоты консультанта
+      parameters:
+        - { $ref: '#/components/parameters/ID' }
+        - in: query
+          name: from
+          schema: { type: string, format: date-time }
+        - in: query
+          name: to
+          schema: { type: string, format: date-time }
+      responses:
+        '200': { description: Доступные слоты }
+  /consultations:
+    post:
+      summary: Создать запись на консультацию
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [slot_id]
+              properties:
+                slot_id: { type: string, format: uuid }
+                problem_description: { type: string, maxLength: 5000 }
+                resume_file_id: { type: string, format: uuid, nullable: true }
+      responses:
+        '201': { description: Запись создана }
+        '409': { $ref: '#/components/responses/Conflict' }
+  /consultations/my:
+    get:
+      summary: Собственные записи студента
+      responses:
+        '200': { description: Список записей }
+  /consultations/{id}:
+    get:
+      summary: Получить доступную текущему пользователю консультацию
+      parameters: [{ $ref: '#/components/parameters/ID' }]
+      responses:
+        '200': { description: Консультация }
+        '404': { $ref: '#/components/responses/NotFound' }
+  /consultations/{id}/reschedule:
+    post:
+      summary: Перенести консультацию один раз
+      parameters: [{ $ref: '#/components/parameters/ID' }]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [new_slot_id]
+              properties:
+                new_slot_id: { type: string, format: uuid }
+      responses:
+        '200': { description: Запись перенесена }
+        '409': { $ref: '#/components/responses/Conflict' }
+  /consultations/{id}/cancel:
+    post:
+      summary: Отменить запись
+      parameters: [{ $ref: '#/components/parameters/ID' }]
+      responses:
+        '204': { description: Запись отменена }
+        '409': { $ref: '#/components/responses/Conflict' }
+  /admin/consultations:
+    get:
+      summary: Записи текущего консультанта
+      parameters:
+        - in: query
+          name: status
+          schema: { type: string, enum: [pending, confirmed, completed, cancelled] }
+        - in: query
+          name: from
+          schema: { type: string, format: date-time }
+        - in: query
+          name: to
+          schema: { type: string, format: date-time }
+        - in: query
+          name: limit
+          schema: { type: integer, minimum: 1, maximum: 100, default: 50 }
+        - in: query
+          name: offset
+          schema: { type: integer, minimum: 0, default: 0 }
+      responses:
+        '200': { description: Страница записей }
+        '403': { $ref: '#/components/responses/Forbidden' }
+  /admin/consultations/{id}/confirm:
+    post:
+      summary: Подтвердить консультацию
+      parameters: [{ $ref: '#/components/parameters/ID' }]
+      responses:
+        '204': { description: Подтверждена }
+  /admin/consultations/{id}/complete:
+    post:
+      summary: Завершить консультацию
+      parameters: [{ $ref: '#/components/parameters/ID' }]
+      responses:
+        '204': { description: Завершена }
+  /admin/slots:
+    get:
+      summary: Слоты текущего консультанта
+      responses:
+        '200': { description: Слоты }
+    post:
+      summary: Создать слот
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [starts_at, ends_at]
+              properties:
+                starts_at: { type: string, format: date-time }
+                ends_at: { type: string, format: date-time }
+      responses:
+        '201': { description: Слот создан }
+        '409': { $ref: '#/components/responses/Conflict' }
+  /admin/slots/{id}:
+    patch:
+      summary: Изменить свободный слот
+      parameters: [{ $ref: '#/components/parameters/ID' }]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [starts_at, ends_at]
+              properties:
+                starts_at: { type: string, format: date-time }
+                ends_at: { type: string, format: date-time }
+      responses:
+        '200': { description: Слот изменён }
+        '409': { $ref: '#/components/responses/Conflict' }
+  /admin/slots/{id}/block:
+    post:
+      summary: Заблокировать свободный слот
+      parameters: [{ $ref: '#/components/parameters/ID' }]
+      responses:
+        '204': { description: Слот заблокирован }
+  /admin/profile:
+    get:
+      summary: Профиль консультанта
+      responses:
+        '200': { description: Профиль }
+    patch:
+      summary: Изменить профиль консультанта
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                specialization: { type: string, maxLength: 200 }
+                description: { type: string, maxLength: 3000 }
+      responses:
+        '200': { description: Профиль обновлён }
+  /files/resumes:
+    post:
+      summary: Загрузить резюме PDF или DOCX
+      requestBody:
+        required: true
+        content:
+          multipart/form-data:
+            schema:
+              type: object
+              required: [file]
+              properties:
+                file: { type: string, format: binary }
+      responses:
+        '201': { description: Файл сохранён }
+        '413': { description: Файл слишком большой }
+        '415': { description: Неподдерживаемый формат }
+  /files/{id}:
+    get:
+      summary: Скачать собственный файл или файл резюме своей консультации (консультант)
+      parameters: [{ $ref: '#/components/parameters/ID' }]
+      responses:
+        '200': { description: Содержимое файла }
+        '404': { $ref: '#/components/responses/NotFound' }
+    delete:
+      summary: Удалить неиспользуемое собственное резюме
+      parameters: [{ $ref: '#/components/parameters/ID' }]
+      responses:
+        '204': { description: Файл удалён }
+  /resume-analyses:
+    post:
+      summary: Поставить резюме в очередь AI-анализа
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [file_id, external_ai_consent]
+              properties:
+                file_id: { type: string, format: uuid }
+                external_ai_consent:
+                  type: boolean
+                  enum: [true]
+                  description: Явное согласие на обработку текста резюме внешним ИИ-провайдером; сохраняется вместе с заданием.
+      responses:
+        '202': { description: Задача поставлена в очередь }
+        '422': { description: Не предоставлено согласие на внешнюю обработку резюме }
+        '503': { description: AI-провайдер не настроен }
+    get:
+      summary: Список анализов текущего пользователя
+      responses:
+        '200': { description: Анализы }
+  /resume-analyses/{id}:
+    get:
+      summary: Статус и результат AI-анализа
+      parameters: [{ $ref: '#/components/parameters/ID' }]
+      responses:
+        '200': { description: Статус и результат }
+        '404': { $ref: '#/components/responses/NotFound' }
+components:
+  securitySchemes:
+    BearerAuth:
+      type: http
+      scheme: bearer
+      bearerFormat: JWT
+  parameters:
+    ID:
+      in: path
+      name: id
+      required: true
+      schema: { type: string, format: uuid }
+  responses:
+    Unauthorized:
+      description: Неаутентифицированный пользователь
+    Forbidden:
+      description: Недостаточно прав
+    NotFound:
+      description: Ресурс не найден
+    Conflict:
+      description: Конфликт состояния, например занят слот или достигнут лимит переноса
