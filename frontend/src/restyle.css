@@ -18,8 +18,8 @@
   color: var(--ink);
 }
 .sidebar { width: 264px; flex-basis: 264px; overflow-y: auto; }
-.brand { flex-shrink: 0; height: 150px; overflow: hidden; }
-.brand img { transform: translate(5px, -5px); }
+.brand { flex-shrink: 0; height: 100px; overflow: hidden; justify-content: center; padding: 0; }
+.brand img { display: block; width: auto; max-width: 100%; height: 100px; object-fit: contain; transform: none; }
 .nav-caption { margin-top: 0; }
 .main-nav { flex-shrink: 0; }
 .nav-link { font-size: 12px; padding: 0 12px; }
@@ -116,14 +116,14 @@ html[data-theme="dark"] .feature-card { background: var(--surface); }
   .main-area { margin-left: 224px; width: calc(100% - 224px); }
   .page-content { padding: 25px 24px 20px; }
   .topbar { padding: 0 24px; }
-  .brand img { width: 180px; transform: none; }
+  .brand img { max-width: 100%; }
   .welcome-hero { padding: 28px; }
 }
 @media (max-width: 760px) {
   .sidebar { width: 264px; z-index: 70; padding-top: 16px; transform: translateX(-102%); }
   .sidebar.sidebar-open { transform: translateX(0); box-shadow: 12px 0 40px #15203926; }
-  .sidebar .brand { height: 115px; }
-  .sidebar .brand img { width: 200px; transform: translate(5px,-5px); }
+  .sidebar .brand { height: 100px; }
+  .sidebar .brand img { height: 100px; width: auto; max-width: 100%; transform: none; }
   .main-area { margin-left: 0; width: 100%; }
   .mobile-menu-button { display: inline-flex; align-items: center; justify-content: center; }
   .mobile-scrim { display: block; position: fixed; inset: 0; z-index: 60; background: #18233866; border: 0; }
@@ -138,7 +138,8 @@ html[data-theme="dark"] .feature-card { background: var(--surface); }
   .app-shell { padding-bottom: calc(66px + env(safe-area-inset-bottom)); }
   .app-footer { padding: 12px 18px; font-size: 9px; }
   .mobile-bottom-nav { display: flex; position: fixed; inset: auto 0 0; z-index: 50; min-height: 66px; padding: 7px 8px calc(7px + env(safe-area-inset-bottom)); background: var(--surface); border-top: 1px solid var(--line); }
-  .mobile-nav-item { flex: 1; display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 5px; font-size: 9px; color: var(--muted); }
+  .mobile-nav-item { flex: 1; min-width: 0; display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 5px; font-size: 9px; color: var(--muted); text-align: center; }
+  .mobile-nav-item span { max-width: 100%; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
   .mobile-nav-active { color: #645add; font-weight: 800; }
   .welcome-hero { padding: 25px 22px; min-height: 285px; }
   .hero-content { max-width: 100%; }
@@ -156,6 +157,22 @@ html[data-theme="dark"] .feature-card { background: var(--surface); }
   .dashboard-columns { grid-template-columns: 1fr; }
   .booking-section { padding: 17px; }
   .page-header h1 { font-size: 25px; }
+}
+@media (max-width: 600px) {
+  .feature-grid, .admin-shortcuts { grid-template-columns: minmax(0, 1fr); }
+  .feature-card, .feature-card.featured-blue, .feature-card.featured-violet { min-height: 0; padding: 18px; }
+  .hero-content h1 { overflow-wrap: anywhere; }
+  .hero-content .button { width: 100%; min-height: 48px; white-space: normal; line-height: 1.4; text-align: center; }
+  .section-heading { align-items: flex-start; flex-wrap: wrap; gap: 10px; }
+  .section-count { margin-left: auto; }
+  .topbar-left { min-width: 0; }
+  .topbar-left > div { min-width: 0; }
+  .topbar-title { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .topbar-actions { flex-shrink: 0; }
+  .page-content, .page-stack, .panel-card, .booking-section { min-width: 0; }
+  .panel-heading { flex-wrap: wrap; }
+  .page-header-action, .page-header-action .button { max-width: 100%; white-space: normal; }
+  .app-footer { flex-wrap: wrap; }
 }
 @media (prefers-reduced-motion: reduce) {
   *, *::before, *::after { scroll-behavior: auto !important; transition: none !important; animation: none !important; }

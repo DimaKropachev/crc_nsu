@@ -383,6 +383,8 @@
 .mobile-bottom-nav,
 .mobile-scrim {
     display: none
+}
+
 .welcome-hero {
     min-height: 300px;
     border-radius: 22px;
