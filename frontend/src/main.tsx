@@ -4,6 +4,8 @@ import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import { AppRoot, ConfigProvider } from '@vkontakte/vkui';
 import '@vkontakte/vkui/dist/vkui.css';
 import './styles.css';
+import './reference.css';
+import './restyle.css';
 import { AuthProvider } from './app/AuthProvider';
 import { App } from './app/App';
 

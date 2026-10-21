@@ -1,0 +1,5 @@
+
+> nsu-career-consultations-mini-app@1.0.0 build
+> tsc -b && vite build
+
+src/pages/DashboardPage.tsx(3,121): error TS6133: 'ShieldCheck' is declared but its value is never read.

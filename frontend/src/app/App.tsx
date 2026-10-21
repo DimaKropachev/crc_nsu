@@ -1,6 +1,6 @@
 import { useEffect, type ReactNode } from 'react';
-import { BrowserRouter, NavLink, Navigate, Outlet, Route, Routes, useLocation } from 'react-router-dom';
-import { CalendarDays, FileText, GraduationCap, LayoutDashboard, LogOut, Mail, Sparkles, Users, BookOpenCheck, Menu, X } from 'lucide-react';
+import { BrowserRouter, NavLink, Navigate, Outlet, Route, Routes, useLocation, useNavigate } from 'react-router-dom';
+import { Bell, BriefcaseBusiness, CalendarDays, ChevronRight, FileText, GraduationCap, HeartHandshake, Home, LayoutDashboard, LogOut, Mail, Sparkles, BookOpenCheck, Menu, ShieldCheck } from 'lucide-react';
 import { useAuth } from './AuthProvider';
 import { isMockMode } from '../shared/api/api';
 import { Avatar, Button, LoadingState, Notice } from '../shared/ui';
@@ -14,12 +14,12 @@ import { useState } from 'react';
 
 interface NavItem { to: string; label: string; icon: typeof LayoutDashboard; roles?: Array<'student' | 'admin'>; }
 const studentNav: NavItem[] = [
-  { to: '/', label: 'Главная', icon: LayoutDashboard },
-  { to: '/booking', label: 'Записаться', icon: CalendarDays },
+  { to: '/', label: 'Главная', icon: Home },
+  { to: '/booking', label: 'Запись на консультацию', icon: CalendarDays },
   { to: '/consultations', label: 'Мои консультации', icon: BookOpenCheck },
   { to: '/resume', label: 'Анализ резюме', icon: FileText },
-  { to: '/volunteer', label: 'Волонтёрство', icon: Users },
-  { to: '/opportunities', label: 'Стипендии и стажировки', icon: GraduationCap },
+  { to: '/opportunities', label: 'Стажировки и стипендии', icon: BriefcaseBusiness },
+  { to: '/volunteer', label: 'Волонтёрство', icon: HeartHandshake },
 ];
 const adminNav: NavItem[] = [
   { to: '/', label: 'Обзор', icon: LayoutDashboard },
@@ -45,29 +45,33 @@ function AuthScreen() {
 function AppShell() {
   const { user, logout } = useAuth();
   const location = useLocation();
+  const navigate = useNavigate();
   const [mobileOpen, setMobileOpen] = useState(false);
   const items = user?.role === 'admin' ? adminNav : studentNav;
   useEffect(() => setMobileOpen(false), [location.pathname]);
   const userName = `${user?.first_name ?? ''} ${user?.last_name ?? ''}`.trim();
 
+  const pageTitle = location.pathname.startsWith('/admin') ? 'Кабинет консультанта' : location.pathname === '/booking' ? 'Карьерная консультация' : location.pathname === '/resume' ? 'Помощник по резюме' : 'Пространство для твоей карьеры';
+
   return <div className="app-shell">
-    <aside className={`sidebar ${mobileOpen ? 'mobile-open' : ''}`}>
-      <div className="sidebar-brand"><div className="brand-mark"><GraduationCap size={22} /></div><div><strong>Карьера НГУ</strong><span>Карьерный центр</span></div><button className="close-nav" aria-label="Закрыть меню" onClick={() => setMobileOpen(false)}><X size={18} /></button></div>
-      <div className="nav-label">МЕНЮ</div>
-      <nav className="side-nav">{items.map((item) => {
+    <aside className={`sidebar ${mobileOpen ? 'sidebar-open' : ''}`}>
+      <NavLink className="brand" to="/" aria-label="На главную"><img src={`${import.meta.env.BASE_URL}NSU_logo.png`} alt="Логотип НГУ" /></NavLink>
+      <div className="nav-caption">РАБОЧЕЕ ПРОСТРАНСТВО</div>
+      <nav className="main-nav" aria-label="Основная навигация">{items.map((item) => {
         const Icon = item.icon;
-        return <NavLink key={item.to} to={item.to} end={item.to === '/'} className={({ isActive }) => `nav-link ${isActive ? 'active' : ''}`}><Icon size={19} strokeWidth={1.8} /><span>{item.label}</span>{item.to === '/resume' && <span className="nav-new">AI</span>}</NavLink>;
+        return <NavLink key={item.to} to={item.to} end={item.to === '/'} className={({ isActive }) => `nav-link ${isActive ? 'nav-link-active' : ''}`}><Icon size={19} strokeWidth={1.8} /><span>{item.label}</span>{item.to === '/resume' && <span className="nav-badge">AI</span>}<ChevronRight size={15} className="nav-chevron" /></NavLink>;
       })}</nav>
-      <div className="sidebar-bottom"><div className="help-card"><span className="help-spark"><Sparkles size={17} /></span><strong>Есть карьерный вопрос?</strong><p>Подготовься к следующему шагу вместе с консультантом.</p><NavLink to={user?.role === 'admin' ? '/admin' : '/booking'}>Начать <span>↗</span></NavLink></div><button className="logout-link" onClick={logout}><LogOut size={18} /><span>{isMockMode ? 'Сменить демо-профиль' : 'Завершить сессию'}</span></button></div>
+      <div className="sidebar-spacer" /><div className="sidebar-help"><div className="help-icon"><Sparkles size={18} /></div><b>Следующий шаг — за тобой</b><p>Маленькие действия складываются в большую карьеру.</p><button type="button" onClick={() => navigate(user?.role === 'admin' ? '/admin' : '/opportunities')}>{user?.role === 'admin' ? 'К расписанию' : 'Изучить возможности'} <ChevronRight size={14} /></button></div>
+      <div className="sidebar-user"><Avatar name={userName} src={user?.avatar_url} size="sm" /><div className="sidebar-user-copy"><b>{userName}</b><small>{user?.role === 'admin' ? 'Консультант' : 'Студент НГУ'}</small></div><button className="icon-button user-exit" type="button" onClick={logout} aria-label={isMockMode ? 'Сменить демо-профиль' : 'Завершить сессию'}><LogOut size={17} /></button></div>
     </aside>
-    {mobileOpen && <button className="nav-scrim" aria-label="Закрыть меню" onClick={() => setMobileOpen(false)} />}
-    <div className="main-column">
-      <header className="topbar"><div className="topbar-left"><button className="mobile-menu" aria-label="Открыть меню" onClick={() => setMobileOpen(true)}><Menu size={21} /></button><div className="breadcrumb">НГУ <span>/</span> <strong>{items.find((item) => item.to === location.pathname)?.label ?? 'Карьерный центр'}</strong></div></div><div className="topbar-profile"><div className="profile-copy"><strong>{userName}</strong><span>{user?.role === 'admin' ? 'Карьерный консультант' : 'Студент НГУ'}</span></div><Avatar name={userName} src={user?.avatar_url} /></div></header>
-      {isMockMode && <div className="demo-banner"><span className="demo-dot" /><span>Демонстрационный режим — изменения не сохраняются на сервер</span></div>}
-      <main className="main-content"><Outlet /></main>
-      <footer className="app-footer"><span>© Карьерный центр НГУ</span><span>Сервис карьерного развития студентов</span></footer>
+    {mobileOpen && <button className="mobile-scrim" aria-label="Закрыть меню" onClick={() => setMobileOpen(false)} />}
+    <div className="main-area">
+      <header className="topbar"><div className="topbar-left"><button className="icon-button mobile-menu-button" aria-label="Открыть меню" onClick={() => setMobileOpen(true)}><Menu size={21} /></button><div><div className="topbar-kicker">НГУ · ЦЕНТР РАЗВИТИЯ КАРЬЕРЫ</div><div className="topbar-title">{pageTitle}</div></div></div><div className="topbar-actions">{isMockMode && <span className="demo-pill"><i />Демо-режим</span>}<button className="icon-button notification-button" type="button" onClick={() => navigate(user?.role === 'admin' ? '/admin' : '/consultations')} aria-label="Мои записи"><Bell size={18} /></button><div className="topbar-profile"><Avatar name={userName} src={user?.avatar_url} size="sm" /><span>{user?.first_name || 'Пользователь'}</span></div></div></header>
+      {isMockMode && <div className="demo-banner"><ShieldCheck size={15} /><span>Локальные демонстрационные данные. Операции не попадают в реальную систему НГУ.</span></div>}
+      <main className="page-content"><Outlet /></main>
+      <footer className="app-footer"><span>Карьерный центр НГУ</span><span>Создано для твоего профессионального старта</span></footer>
     </div>
-    <nav className="bottom-nav">{items.slice(0, 5).map((item) => { const Icon = item.icon; return <NavLink key={item.to} to={item.to} end={item.to === '/'} className={({ isActive }) => `bottom-nav-item ${isActive ? 'active' : ''}`}><Icon size={20} /><span>{item.label.split(' ')[0]}</span></NavLink>; })}</nav>
+    <nav className="mobile-bottom-nav" aria-label="Быстрая навигация">{items.slice(0, 4).map((item) => { const Icon = item.icon; return <NavLink key={item.to} to={item.to} end={item.to === '/'} className={({ isActive }) => `mobile-nav-item ${isActive ? 'mobile-nav-active' : ''}`}><Icon size={19} /><span>{item.to === '/booking' ? 'Запись' : item.to === '/consultations' ? 'Мои встречи' : item.to === '/resume' ? 'Резюме' : item.label.split(' ')[0]}</span></NavLink>; })}</nav>
   </div>;
 }
 
