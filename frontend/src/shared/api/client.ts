@@ -63,11 +63,13 @@ export async function request<T>(path: string, init: RequestInit = {}): Promise<
       headers,
       credentials: 'omit',
     });
-  } catch {
+  } catch (cause) {
+    if (init.signal?.aborted || (cause instanceof DOMException && cause.name === 'AbortError')) throw cause;
     throw new ApiClientError(0, 'NETWORK_ERROR', 'Не удалось связаться с сервером. Проверьте подключение и адрес API.');
   }
 
-  if (response.status === 401) {
+  // An old request must not expire a session established while it was in flight.
+  if (response.status === 401 && token === getAccessToken()) {
     window.dispatchEvent(new CustomEvent('career-auth-expired'));
   }
   if (!response.ok) throw await parseError(response);

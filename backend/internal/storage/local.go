@@ -32,24 +32,31 @@ func (s *Local) Save(src io.Reader, ext string, maxBytes int64) (string, int64, 
 	if err != nil {
 		return "", 0, err
 	}
-	defer f.Close()
+	// Close before removing: Windows cannot remove an open file.
+	saved := false
+	defer func() {
+		_ = f.Close()
+		if !saved {
+			_ = os.Remove(path)
+		}
+	}()
 	n, err := io.Copy(f, io.LimitReader(src, maxBytes+1))
 	if err != nil {
-		os.Remove(path)
 		return "", 0, err
 	}
 	if n > maxBytes {
-		os.Remove(path)
 		return "", n, fmt.Errorf("file too large")
 	}
 	if n == 0 {
-		os.Remove(path)
 		return "", 0, fmt.Errorf("empty file")
 	}
 	if err := f.Sync(); err != nil {
-		os.Remove(path)
 		return "", 0, err
 	}
+	if err := f.Close(); err != nil {
+		return "", 0, err
+	}
+	saved = true
 	return key, n, nil
 }
 func (s *Local) Open(key string) (*os.File, error) {

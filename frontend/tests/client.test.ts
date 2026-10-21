@@ -8,6 +8,31 @@ afterEach(() => {
 });
 
 describe('HTTP client', () => {
+  it('does not expire a newer session after a stale request returns 401', async () => {
+    setAccessToken('old-token');
+    let respond!: (response: Response) => void;
+    vi.stubGlobal('fetch', vi.fn().mockImplementation(() => new Promise<Response>((resolve) => { respond = resolve; })));
+    const eventSpy = vi.fn();
+    window.addEventListener('career-auth-expired', eventSpy);
+    try {
+      const pending = request('/me');
+      setAccessToken('new-token');
+      respond(new Response(null, { status: 401 }));
+      await expect(pending).rejects.toMatchObject({ status: 401 });
+      expect(eventSpy).not.toHaveBeenCalled();
+    } finally {
+      window.removeEventListener('career-auth-expired', eventSpy);
+    }
+  });
+
+  it('preserves request cancellation instead of reporting a network failure', async () => {
+    const controller = new AbortController();
+    controller.abort();
+    const cause = new DOMException('Aborted', 'AbortError');
+    vi.stubGlobal('fetch', vi.fn().mockRejectedValue(cause));
+    await expect(request('/me', { signal: controller.signal })).rejects.toBe(cause);
+  });
+
   it('sends the bearer token and decodes a JSON response', async () => {
     setAccessToken('test-access-token');
     const fetchMock = vi.fn().mockResolvedValue(new Response(JSON.stringify({ id: 'abc' }), {

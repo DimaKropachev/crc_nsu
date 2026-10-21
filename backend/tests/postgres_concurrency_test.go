@@ -162,4 +162,18 @@ func TestPostgresConsultationLifecycle(t *testing.T) {
 	if status != "completed" {
 		t.Fatalf("expected completed status, got %q", status)
 	}
+
+	// With no consent there are no sendable jobs, but maintenance must still commit.
+	if _, err := pool.Exec(ctx, `UPDATE consultation_reminders SET status='sending',updated_at=now()-interval '6 minutes' WHERE consultation_id=$1`, last.ID); err != nil {
+		t.Fatal(err)
+	}
+	if _, ok, err := repo.ClaimDueReminder(ctx); err != nil || ok {
+		t.Fatalf("expected no sendable reminder: ok=%v err=%v", ok, err)
+	}
+	if err := pool.QueryRow(ctx, `SELECT status FROM consultation_reminders WHERE consultation_id=$1`, last.ID).Scan(&status); err != nil {
+		t.Fatal(err)
+	}
+	if status != "cancelled" {
+		t.Fatalf("maintenance was rolled back: completed consultation reminder status=%q", status)
+	}
 }

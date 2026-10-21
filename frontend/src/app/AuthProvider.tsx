@@ -1,5 +1,6 @@
 import { createContext, useCallback, useContext, useEffect, useMemo, useState, type ReactNode } from 'react';
 import bridge, { parseURLSearchParamsForGetLaunchParams } from '@vkontakte/vk-bridge';
+import { useQueryClient } from '@tanstack/react-query';
 import { authApi } from '../shared/api/api';
 import { clearSession, getAccessToken, setAccessToken } from '../shared/api/client';
 import { mockAdmin, mockStudent } from '../shared/api/mock';
@@ -21,6 +22,7 @@ interface AuthContextValue {
 const AuthContext = createContext<AuthContextValue | null>(null);
 
 export function AuthProvider({ children }: { children: ReactNode }) {
+  const queryClient = useQueryClient();
   const [user, setUser] = useState<User | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
@@ -32,10 +34,11 @@ export function AuthProvider({ children }: { children: ReactNode }) {
 
   const logout = useCallback(() => {
     clearSession();
+    queryClient.clear();
     setUser(null);
     setError(null);
     setLoading(false);
-  }, []);
+  }, [queryClient]);
 
   const refreshUser = useCallback(async () => {
     const current = await authApi.me();
@@ -54,21 +57,23 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   const loginDemo = useCallback((role: 'student' | 'admin') => {
     if (!MOCK) return;
     const demoUser = role === 'admin' ? mockAdmin : mockStudent;
+    queryClient.clear();
     setAccessToken('local-mock-token');
     saveUser(demoUser);
     setError(null);
     setLoading(false);
-  }, [saveUser]);
+  }, [saveUser, queryClient]);
 
   useEffect(() => {
     const handleExpired = () => {
       clearSession();
+      queryClient.clear();
       setUser(null);
       setError('Сессия завершилась. Откройте приложение через VK ещё раз.');
     };
     window.addEventListener('career-auth-expired', handleExpired);
     return () => window.removeEventListener('career-auth-expired', handleExpired);
-  }, []);
+  }, [queryClient]);
 
   useEffect(() => {
     let cancelled = false;

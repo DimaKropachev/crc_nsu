@@ -619,7 +619,8 @@ JOIN users u ON u.id=c.student_id JOIN consultant_profiles cp ON cp.id=c.consult
 WHERE cr.status='pending' AND cr.scheduled_at<=now() AND c.status IN ('pending','confirmed') AND s.starts_at>now() AND cr.slot_id=c.slot_id AND u.notification_consent=true
 ORDER BY cr.scheduled_at LIMIT 1 FOR UPDATE OF cr SKIP LOCKED`).Scan(&item.ID, &item.ConsultationID, &item.VKID, &item.StudentFirstName, &item.ConsultantName, &item.StartsAt, &item.Attempts)
 	if errors.Is(err, pgx.ErrNoRows) {
-		return DueReminder{}, false, nil
+		// Recovery and cancellation are maintenance work even when no job is sendable.
+		return DueReminder{}, false, tx.Commit(ctx)
 	}
 	if err != nil {
 		return DueReminder{}, false, err
