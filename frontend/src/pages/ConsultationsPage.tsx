@@ -37,7 +37,7 @@ export function ConsultationsPage() {
 }
 
 function ConsultationCard({ item, onUpdated }: { item: Consultation; onUpdated: () => Promise<void> }) {
-  const queryClient = useQueryClient();
+  // const queryClient = useQueryClient();
   const [rescheduling, setRescheduling] = useState(false);
   const [selectedSlot, setSelectedSlot] = useState<ConsultationSlot | null>(null);
   const [error, setError] = useState<string | null>(null);

@@ -1,0 +1,35 @@
+﻿#1 [api internal] load build definition from Dockerfile
+#1 transferring dockerfile: 519B 0.0s done
+#1 DONE 0.0s
+
+#2 [api internal] load metadata for docker.io/library/alpine:3.21
+#2 DONE 5.1s
+
+#3 [api internal] load metadata for docker.io/library/golang:1.23-alpine
+#3 DONE 7.2s
+
+#4 [api internal] load .dockerignore
+#4 transferring context: 102B done
+#4 DONE 0.0s
+
+#5 [api build 1/7] FROM docker.io/library/golang:1.23-alpine@sha256:383395b794dffa5b53012a212365d40c8e37109a626ca30d6151c8348d380b5f
+#5 DONE 0.0s
+
+#6 [api stage-1 1/5] FROM docker.io/library/alpine:3.21@sha256:ce64758a109eb420d874a118f87920e625e12d3634e03b4a5573fd9f6e5d3507
+#6 DONE 0.0s
+
+#7 [api build 2/7] WORKDIR /src
+#7 CACHED
+
+#8 [api build 3/7] RUN apk add --no-cache ca-certificates git
+#8 CACHED
+
+#9 [api internal] load build context
+#9 transferring context: 16.85kB 0.0s done
+#9 DONE 0.0s
+
+#10 [api build 4/7] COPY go.mod go.sum ./
+#10 DONE 0.1s
+
+#11 [api build 5/7] RUN go mod download
+#11 CANCELED

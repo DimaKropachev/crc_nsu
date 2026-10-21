@@ -1,5 +1,5 @@
 import { afterEach, describe, expect, it, vi } from 'vitest';
-import { clearSession, request, setAccessToken, ApiClientError } from '../src/shared/api/client';
+import { apiBaseUrl, clearSession, request, setAccessToken, ApiClientError } from '../src/shared/api/client';
 import { resumeAnalysisApi } from '../src/shared/api/api';
 
 afterEach(() => {
@@ -18,6 +18,7 @@ describe('HTTP client', () => {
     const result = await request<{ id: string }>('/me');
     expect(result.id).toBe('abc');
     expect(fetchMock).toHaveBeenCalledOnce();
+    expect(fetchMock.mock.calls[0][0]).toBe(`${apiBaseUrl}/api/v1/me`);
     const [, init] = fetchMock.mock.calls[0] as [string, RequestInit];
     expect(new Headers(init.headers).get('Authorization')).toBe('Bearer test-access-token');
   });
