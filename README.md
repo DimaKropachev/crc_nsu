@@ -44,6 +44,15 @@ docker compose up --build -d
 
 ### Cloudflare Tunnel и ошибка «Origin не разрешён»
 
+На Windows и Linux можно запустить Quick Tunnel в сети Compose (без `--network host`):
+
+```bash
+docker compose -f docker-compose.yaml -f compose.tunnel.yaml up -d --build
+docker compose -f docker-compose.yaml -f compose.tunnel.yaml logs --tail=100 tunnel
+```
+
+Origin туннеля внутри Docker — `http://frontend:80`, а не `localhost` контейнера cloudflared. Конфигурация использует HTTP/2. Это временный Quick Tunnel, не постоянный production-домен. Для Aeza используй постоянный домен и named tunnel с отдельными credentials; секреты не помещай в Git. Не публикуй development-конфигурацию с реальными данными. До публикации задай production-настройки ниже и проверь HTTPS, вход через VK и ограничения доступа. Успешный `docker compose config` проверяет конфигурацию, но не соединение с Cloudflare.
+
 Для туннеля на Linux-сервере сначала проверь локальную готовность приложения, затем запусти:
 
 ```bash

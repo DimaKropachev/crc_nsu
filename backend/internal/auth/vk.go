@@ -22,11 +22,10 @@ func VerifyLaunchParams(raw, appID, secret string, now time.Time) (url.Values, e
 	if err != nil {
 		return nil, ErrInvalidVKSignature
 	}
-	for key, vals := range values {
+	for _, vals := range values {
 		if len(vals) != 1 {
 			return nil, ErrInvalidVKSignature
 		}
-		_ = key
 	}
 	sign := values.Get("sign")
 	userID := values.Get("vk_user_id")
@@ -36,7 +35,7 @@ func VerifyLaunchParams(raw, appID, secret string, now time.Time) (url.Values, e
 	if appID != "" && values.Get("vk_app_id") != appID {
 		return nil, ErrInvalidVKSignature
 	}
-	if _, err := strconv.ParseInt(userID, 10, 64); err != nil {
+	if id, err := strconv.ParseInt(userID, 10, 64); err != nil || id <= 0 {
 		return nil, ErrInvalidVKSignature
 	}
 

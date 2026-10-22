@@ -1,8 +1,9 @@
 import { createContext, useCallback, useContext, useEffect, useMemo, useState, type ReactNode } from 'react';
-import bridge, { parseURLSearchParamsForGetLaunchParams } from '@vkontakte/vk-bridge';
+import bridge from '@vkontakte/vk-bridge';
 import { useQueryClient } from '@tanstack/react-query';
 import { authApi } from '../shared/api/api';
-import { clearSession, getAccessToken, setAccessToken } from '../shared/api/client';
+import { clearSession, setAccessToken } from '../shared/api/client';
+import { restoreVKSession } from '../shared/api/session';
 import { mockAdmin, mockStudent } from '../shared/api/mock';
 import type { User } from '../shared/api/types';
 
@@ -97,31 +98,12 @@ export function AuthProvider({ children }: { children: ReactNode }) {
         // VKWebAppInit/config can be unavailable in an ordinary browser; launch params are checked below.
       }
 
-      const launch = parseURLSearchParamsForGetLaunchParams(window.location.search);
-      if (!getAccessToken()) {
-        if (!launch.sign || !launch.vk_user_id || !launch.vk_app_id) {
-          if (!cancelled) {
-            setError('Откройте мини-приложение из VK, чтобы выполнить вход. Для локального интерфейса используйте VITE_MOCK_MODE=true.');
-            setLoading(false);
-          }
-          return;
-        }
-        try {
-          // Send the original query string: signature verification must happen on the server.
-          const result = await authApi.loginWithVK(window.location.search.replace(/^\?/, ''));
-          if (cancelled) return;
-          setAccessToken(result.access_token);
-          saveUser(result.user);
-        } catch (cause) {
-          if (!cancelled) setError(cause instanceof Error ? cause.message : 'Не удалось войти через VK.');
-          if (!cancelled) setLoading(false);
-          return;
-        }
-      }
-
       try {
-        const current = await authApi.me();
-        if (!cancelled) saveUser(current);
+        const current = await restoreVKSession(window.location.search, () => cancelled);
+        if (!cancelled && current) {
+          saveUser(current);
+          setError(null);
+        }
       } catch (cause) {
         if (!cancelled) setError(cause instanceof Error ? cause.message : 'Не удалось проверить сессию.');
       } finally {

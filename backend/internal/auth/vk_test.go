@@ -62,6 +62,18 @@ func TestVerifyLaunchParamsRejectsWrongApp(t *testing.T) {
 	}
 }
 
+func TestVerifyLaunchParamsRejectsInvalidUserID(t *testing.T) {
+	for _, id := range []string{"0", "-1", "abc", "", "9223372036854775808"} {
+		t.Run(id, func(t *testing.T) {
+			values := url.Values{"vk_app_id": {"123"}, "vk_user_id": {id}}
+			values.Set("sign", signTestValues(values, "test-secret"))
+			if _, err := VerifyLaunchParams(values.Encode(), "123", "test-secret", time.Now()); err == nil {
+				t.Fatal("invalid VK user ID was accepted")
+			}
+		})
+	}
+}
+
 func TestVerifyLaunchParamsRejectsDuplicateValues(t *testing.T) {
 	values := url.Values{"vk_app_id": {"123"}, "vk_user_id": {"456", "999"}, "sign": {"not-a-signature"}}
 	if _, err := VerifyLaunchParams(values.Encode(), "123", "test-secret", time.Now()); err == nil {
