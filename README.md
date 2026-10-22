@@ -1,19 +1,44 @@
 # VK Mini App — карьерные консультации НГУ
 
-В репозитории два согласованных проекта:
+Приложение для записи на карьерные консультации и анализа резюме.
 
-- `backend/` — Go REST API, PostgreSQL, миграции, авторизация VK, запись на консультации, хранение резюме и worker AI-анализа.
-- `frontend/` — React + TypeScript + Vite интерфейс VK Mini App.
+## Технологии
+
+- **Frontend (`frontend/`):** React 18, TypeScript, Vite, VKUI и VK Bridge, React Router, TanStack Query.
+- **Backend (`backend/`):** Go 1.23, REST API на chi, JWT-авторизация, pgx для работы с PostgreSQL.
+- **База данных и запуск:** PostgreSQL 16, SQL-миграции, Docker Compose, nginx для раздачи frontend и проксирования API.
+- **Тестирование:** Vitest и Testing Library на frontend, стандартные тесты Go на backend.
 
 ## Запуск всего приложения
 
-Требуются Docker Engine и Docker Compose v2. Из корня репозитория:
+1. Установи Git и Docker Desktop (Windows/macOS) либо Docker Engine с Docker Compose v2 (Linux). Запусти Docker. Node.js и Go для этого способа не нужны.
+2. Клонируй репозиторий и открой терминал в его корневой папке `CRC_NSU` — там, где находится `docker-compose.yaml`.
+3. Создай корневой `.env` из примера. Если файл уже есть, сохрани свои настройки.
 
-```bash
-docker compose up --build -d
-```
+   Windows (PowerShell или CMD):
 
-Приложение доступно на **http://localhost:8080**. Compose запускает PostgreSQL, применяет миграции, дожидается готовности Go API и запускает nginx с собранным frontend. API и база доступны только внутри Docker-сети.
+   ```powershell
+   copy .env.example .env
+   ```
+
+   Linux/macOS:
+
+   ```bash
+   cp .env.example .env
+   ```
+
+4. Для локального запуска оставь `APP_ENV=development`. Значений из примера достаточно для запуска инфраструктуры. Для входа через VK заполни `VK_APP_ID` и `VK_APP_SECRET` параметрами Mini App; подробности ниже.
+5. Собери и запусти приложение из корня репозитория:
+
+   ```bash
+   docker compose up --build -d
+   ```
+
+6. Дождись готовности контейнеров (`docker compose ps`) и открой **http://localhost:8080**. При первой сборке Docker скачивает образы и зависимости, поэтому требуется интернет и запуск может занять несколько минут.
+
+Compose запускает PostgreSQL, применяет миграции, дожидается готовности Go API и запускает nginx с собранным frontend. API и база доступны только внутри Docker-сети.
+
+Для проверки открой **http://localhost:8080/api/v1/health/ready**: ожидаемый ответ — `{"status":"ready"}`. Это подтверждает работу nginx, API и базы. Для просмотра интерфейса без настройки VK используй демонстрационный режим из раздела «Запуск фронтенда».
 
 ```text
 Браузер → nginx:80 → /             → React frontend
@@ -34,7 +59,7 @@ cp .env.example .env
 
 Для публикации настрой HTTPS и адрес приложения в VK, установи `APP_ENV=production`, случайный `JWT_SECRET` не короче 32 символов и `CORS_ALLOWED_ORIGINS` с точным публичным origin frontend. Не используй development-пароли в production.
 
-Значение `JWT_SECRET` в `.env.example` является заглушкой: замени его в корневом `.env` на собственный случайный секрет. Сервер намеренно завершает работу в production, если `CORS_ALLOWED_ORIGINS` пуст, `JWT_SECRET` короче 32 символов или начинается с `replace-with-`, либо отсутствуют `VK_APP_ID` и `VK_APP_SECRET`. Причину завершения смотри через `docker compose logs --tail=50 api`; после исправления `.env` пересоздай контейнер командой `docker compose up -d --no-deps --force-recreate api`.
+В `.env.example` значение `JWT_SECRET` пустое: в development сервер использует локальный секрет по умолчанию. Перед публикацией задай собственный случайный секрет. Сервер завершает работу в production, если `CORS_ALLOWED_ORIGINS` пуст, `JWT_SECRET` короче 32 символов или начинается с `replace-with-`, либо отсутствуют `VK_APP_ID` и `VK_APP_SECRET`. Причину завершения смотри через `docker compose logs --tail=50 api`; после исправления `.env` пересоздай контейнер командой `docker compose up -d --no-deps --force-recreate api`.
 
 ```bash
 docker compose up --build -d
@@ -86,23 +111,34 @@ Quick Tunnel выдаёт новый адрес при новом запуске
 
 ## Запуск фронтенда
 
-В новом терминале:
+Этот способ подходит для разработки интерфейса с автоматическим обновлением. Установи **Node.js 22 LTS** (npm входит в комплект). В терминале из корня репозитория:
 
 ```bash
 cd frontend
-cp .env.example .env
-npm install 
+npm ci
+```
+
+Создай `frontend/.env`: в Windows выполни `copy .env.example .env`, в Linux/macOS — `cp .env.example .env`. Если файл уже есть, отредактируй его.
+
+Для запуска **без backend и ключей VK** укажи в `frontend/.env`:
+
+```dotenv
+VITE_API_BASE_URL=
+VITE_MOCK_MODE=true
+```
+
+Затем в папке `frontend` выполни:
+
+```bash
 npm run dev
 ```
 
-Для отдельного запуска frontend оставь `VITE_API_BASE_URL` пустым: Vite проксирует `/api/v1` на `http://localhost:8080` (локальный API или Docker-стек). Если backend расположен отдельно, укажи его origin без `/api/v1` в `VITE_API_BASE_URL`. Для локальной разработки без VK и бэкенда можно включить `VITE_MOCK_MODE=true`; данные и отчёт в таком режиме демонстрационные. Не включай mock-режим в production. Переменные Vite применяются при сборке, не при запуске nginx.
+Открой адрес из вывода Vite (обычно **http://localhost:5173**). Данные и отчёт в этом режиме демонстрационные. Остановка — `Ctrl+C`.
+
+Для работы с реальным API сначала запусти Docker-стек по инструкции выше, установи `VITE_MOCK_MODE=false` и оставь `VITE_API_BASE_URL` пустым: Vite проксирует `/api/v1` на `http://localhost:8080`. Если backend расположен отдельно, укажи его origin без `/api/v1` в `VITE_API_BASE_URL`. После изменения `.env` перезапусти Vite. В Docker mock-режим отключён; переменные Vite применяются при сборке, не при запуске nginx.
 
 Настоящая авторизация требует открыть приложение через VK Mini Apps и настроить параметры VK на сервере. В development backend разрешает локальные origin, например `http://localhost:5173`.
 
-## Согласие на AI-анализ
-
-Перед стартом анализа студент подтверждает передачу текста резюме внешнему ИИ-провайдеру. Фронтенд отправляет `external_ai_consent: true` в `POST /api/v1/resume-analyses`; бэкенд сохраняет факт и время согласия и не ставит задачи без согласия в очередь. Для фактического анализа нужно настроить `AI_PROVIDER`, `AI_API_KEY` и `AI_MODEL` в корневом `.env`. Без провайдера консультации работают, анализ возвращает `503`. Worker анализа работает внутри API. Напоминания включаются через `REMINDER_ENABLED=true` и `NOTIFICATION_API_TOKEN` (токен сообщества VK).
-
 ## Проверки
 
-Фронтенд: `npm run build`, `npm run test`. Бэкенд: `go test ./...`, `go vet ./...`. Для integration-тестов бэкенда требуется отдельная тестовая PostgreSQL. Перед production также проверь реальные параметры запуска VK и интеграцию с AI/VK API.
+В папке `frontend`: `npm run build`, `npm run test`. В папке `backend` (требуется Go 1.23 или новее): `go test ./...`, `go vet ./...`. Для integration-тестов бэкенда требуется отдельная тестовая PostgreSQL. Перед production также проверь реальные параметры запуска VK и интеграцию с AI/VK API.

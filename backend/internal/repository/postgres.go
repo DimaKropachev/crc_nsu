@@ -226,7 +226,7 @@ func (r *Postgres) CreateConsultation(ctx context.Context, studentID, slotID uui
 	if err != nil {
 		return c, err
 	}
-	_, err = tx.Exec(ctx, `INSERT INTO consultation_history(consultation_id,actor_user_id,action,new_value) VALUES($1,$2,'created',jsonb_build_object('slot_id',$3,'status','pending'))`, c.ID, studentID, slotID)
+	_, err = tx.Exec(ctx, `INSERT INTO consultation_history(consultation_id,actor_user_id,action,new_value) VALUES($1,$2,'created',jsonb_build_object('slot_id',$3::uuid,'status','pending'))`, c.ID, studentID, slotID)
 	if err != nil {
 		return c, err
 	}
@@ -410,7 +410,7 @@ func (r *Postgres) CancelConsultation(ctx context.Context, userID, consultationI
 	if err != nil {
 		return err
 	}
-	_, err = tx.Exec(ctx, `INSERT INTO consultation_history(consultation_id,actor_user_id,action,old_value,new_value) VALUES($1,$2,'cancelled',jsonb_build_object('status',$3),jsonb_build_object('status','cancelled'))`, consultationID, userID, status)
+	_, err = tx.Exec(ctx, `INSERT INTO consultation_history(consultation_id,actor_user_id,action,old_value,new_value) VALUES($1,$2,'cancelled',jsonb_build_object('status',$3::text),jsonb_build_object('status','cancelled'))`, consultationID, userID, status)
 	if err != nil {
 		return err
 	}
@@ -442,7 +442,7 @@ func (r *Postgres) SetConsultationStatus(ctx context.Context, userID, consultati
 	if err != nil {
 		return err
 	}
-	_, err = tx.Exec(ctx, `INSERT INTO consultation_history(consultation_id,actor_user_id,action,old_value,new_value) VALUES($1,$2,$3,jsonb_build_object('status',$4),jsonb_build_object('status',$3))`, consultationID, userID, target, status)
+	_, err = tx.Exec(ctx, `INSERT INTO consultation_history(consultation_id,actor_user_id,action,old_value,new_value) VALUES($1,$2,$3::text,jsonb_build_object('status',$4::text),jsonb_build_object('status',$3::text))`, consultationID, userID, target, status)
 	if err != nil {
 		return err
 	}

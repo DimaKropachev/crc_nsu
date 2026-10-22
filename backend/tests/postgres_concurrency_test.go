@@ -116,6 +116,14 @@ func TestPostgresConsultationLifecycle(t *testing.T) {
 	if successes != 1 || conflicts != 1 {
 		t.Fatalf("expected exactly one booking and one conflict, got successes=%d conflicts=%d", successes, conflicts)
 	}
+	var historySlot uuid.UUID
+	var historyStatus string
+	if err := pool.QueryRow(ctx, `SELECT (new_value->>'slot_id')::uuid,new_value->>'status' FROM consultation_history WHERE consultation_id=$1 AND action='created'`, booked.ID).Scan(&historySlot, &historyStatus); err != nil {
+		t.Fatalf("read booking history: %v", err)
+	}
+	if historySlot != slot1 || historyStatus != "pending" {
+		t.Fatalf("unexpected booking history: slot=%s status=%q", historySlot, historyStatus)
+	}
 
 	// The first reschedule succeeds; the next one is rejected server-side.
 	moved, err := repo.Reschedule(ctx, studentID, booked.ID, slot2)
