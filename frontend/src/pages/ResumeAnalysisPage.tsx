@@ -79,7 +79,7 @@ export function ResumeAnalysisPage() {
   };
 
   return <div className="page-stack">
-    <PageHeader eyebrow="ИНСТРУМЕНТЫ ДЛЯ КАРЬЕРЫ" title="Анализ резюме с ИИ" description="Посмотри на своё резюме глазами рекрутера и получи идеи, как сделать его сильнее." />
+    <PageHeader title="Анализ резюме" />
     <div className="resume-intro"><div className="resume-intro-icon"><Sparkles size={28} /></div><div><h2>Сильное резюме — это не просто список навыков</h2><p>Загрузи резюме, а сервис проверит структуру, формулировки и полноту информации. Ты получишь рекомендации, которые можно применить к следующей версии.</p><div className="trust-row"><span><ShieldCheck size={15} /> Приватная загрузка</span><span><FileText size={15} /> PDF и DOCX</span><span><Lightbulb size={15} /> Конкретные рекомендации</span></div></div></div>
 
     <div className="resume-grid">
@@ -95,7 +95,7 @@ export function ResumeAnalysisPage() {
         </form>
       </section>
 
-      <section className="panel-card analysis-result-card"><div className="panel-heading"><div><span className="eyebrow">ШАГ 2</span><h2>Результат проверки</h2><p>Здесь появится персональный отчёт.</p></div><IconTile icon={Sparkles} tone="green" /></div>
+      <section className="panel-card analysis-result-card"><div className="panel-heading"><div><span className="eyebrow">ШАГ 2</span><h2>Результат проверки</h2></div><IconTile icon={Sparkles} tone="green" /></div>
         {!activeId && <div className="result-placeholder"><div className="report-illustration"><div className="report-sheet"><span /><span /><span /><i><CheckCircle2 size={24} /></i></div><span className="report-spark">✦</span></div><strong>Твой отчёт появится здесь</strong><p>После загрузки резюме сервис начнёт обработку. Обычно статус обновляется автоматически.</p><div className="result-checklist"><span><CheckCircle2 size={16} /> Сильные стороны</span><span><CheckCircle2 size={16} /> Что улучшить</span><span><CheckCircle2 size={16} /> Следующие шаги</span></div></div>}
         {activeId && detail.isLoading && <LoadingState label="Загружаем состояние анализа…" />}
         {activeId && detail.isError && <Notice tone="danger">Не удалось получить состояние анализа. Проверь соединение и выбери запись в истории, чтобы повторить запрос.</Notice>}

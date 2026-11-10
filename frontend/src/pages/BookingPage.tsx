@@ -77,7 +77,7 @@ export function BookingPage() {
   };
 
   return <div className="page-stack">
-    <PageHeader eyebrow="ЗАПИСЬ НА КОНСУЛЬТАЦИЮ" title="Найди свой следующий шаг" description="Выбери эксперта, удобное время и расскажи, с чем хочешь разобраться." action={<button className="back-link" onClick={() => navigate('/')}><ArrowLeft size={16} /> На главную</button>} />
+    <PageHeader title="Выбери эксперта" action={<button className="back-link" onClick={() => navigate('/')}><ArrowLeft size={16} /> На главную</button>} />
     <div className="booking-steps"><div className={`booking-step ${!consultant ? 'current' : 'done'}`}><span>{consultant ? <CheckCircle2 size={18} /> : '01'}</span><div><strong>Консультант</strong><small>Выбери эксперта</small></div></div><div className="step-line" /><div className={`booking-step ${selectedSlot ? 'done' : consultant ? 'current' : ''}`}><span>{selectedSlot ? <CheckCircle2 size={18} /> : '02'}</span><div><strong>Время встречи</strong><small>Подбери слот</small></div></div><div className="step-line" /><div className={`booking-step ${selectedSlot ? 'current' : ''}`}><span>03</span><div><strong>Твой запрос</strong><small>Подтверди запись</small></div></div></div>
 
     <section className="booking-section"><div className="section-heading compact"><div><span className="eyebrow">ШАГ 1</span><h2>Выбери консультанта</h2></div><span className="count-label">{consultants.data?.length ?? 0} эксперта</span></div>
