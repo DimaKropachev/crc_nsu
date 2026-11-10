@@ -74,3 +74,23 @@ func TestLocalRoundTrip(t *testing.T) {
 		t.Fatalf("traversal error = %v", err)
 	}
 }
+
+func TestLocalRejectsInvalidNames(t *testing.T) {
+	s, err := NewLocal(t.TempDir())
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, ext := range []string{"", ".exe", "/../outside.pdf", `\outside.pdf`} {
+		if _, _, err := s.Save(strings.NewReader("data"), ext, 4); err == nil {
+			t.Errorf("accepted extension %q", ext)
+		}
+	}
+	for _, key := range []string{"", ".", "../outside.pdf", `..\outside.pdf`, strings.Repeat("z", 32) + ".pdf", strings.Repeat("a", 32) + ".exe"} {
+		if _, err := s.Open(key); !errors.Is(err, os.ErrNotExist) {
+			t.Errorf("Open(%q) error = %v", key, err)
+		}
+		if err := s.Delete(key); !errors.Is(err, os.ErrNotExist) {
+			t.Errorf("Delete(%q) error = %v", key, err)
+		}
+	}
+}

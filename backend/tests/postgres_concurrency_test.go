@@ -9,10 +9,11 @@ import (
 	"testing"
 	"time"
 
-	"career-consultations-backend/internal/models"
-	"career-consultations-backend/internal/repository"
 	"github.com/google/uuid"
 	"github.com/jackc/pgx/v5/pgxpool"
+
+	"career-consultations-backend/internal/models"
+	"career-consultations-backend/internal/repository"
 )
 
 // TestPostgresConsultationLifecycle uses an isolated schema in TEST_DATABASE_URL.

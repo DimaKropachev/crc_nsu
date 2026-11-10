@@ -5,9 +5,10 @@ import (
 	"fmt"
 	"time"
 
+	"go.uber.org/zap"
+
 	"career-consultations-backend/internal/notifications"
 	"career-consultations-backend/internal/repository"
-	"go.uber.org/zap"
 )
 
 type ReminderWorker struct {
@@ -19,6 +20,7 @@ type ReminderWorker struct {
 func NewReminderWorker(repo *repository.Postgres, sender notifications.Sender, log *zap.Logger) *ReminderWorker {
 	return &ReminderWorker{repo: repo, sender: sender, log: log}
 }
+
 func (w *ReminderWorker) Run(ctx context.Context) {
 	ticker := time.NewTicker(30 * time.Second)
 	defer ticker.Stop()
@@ -32,6 +34,7 @@ func (w *ReminderWorker) Run(ctx context.Context) {
 		}
 	}
 }
+
 func (w *ReminderWorker) process(ctx context.Context) {
 	for i := 0; i < 20; i++ {
 		item, ok, err := w.repo.ClaimDueReminder(ctx)

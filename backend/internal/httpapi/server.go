@@ -7,7 +7,9 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"log/slog"
 	"mime"
+	"mime/multipart"
 	"net"
 	"net/http"
 	"net/url"
@@ -17,15 +19,16 @@ import (
 	"sync"
 	"time"
 
+	"github.com/go-chi/chi/v5"
+	"github.com/google/uuid"
+	"go.uber.org/zap"
+
 	"career-consultations-backend/internal/auth"
 	"career-consultations-backend/internal/config"
 	"career-consultations-backend/internal/models"
 	"career-consultations-backend/internal/repository"
 	"career-consultations-backend/internal/service"
 	"career-consultations-backend/internal/storage"
-	"github.com/go-chi/chi/v5"
-	"github.com/google/uuid"
-	"go.uber.org/zap"
 )
 
 type Server struct {
@@ -38,14 +41,17 @@ type Server struct {
 	aiReady       bool
 	limiter       *ipLimiter
 }
-type principal struct{ User models.User }
-type contextKey string
+type (
+	principal  struct{ User models.User }
+	contextKey string
+)
 
 const principalKey contextKey = "principal"
 
 func New(cfg config.Config, repo *repository.Postgres, tokens *auth.TokenService, files *storage.Local, logger *zap.Logger, aiReady bool) *Server {
 	return &Server{cfg: cfg, repo: repo, consultations: service.NewConsultations(repo), tokens: tokens, files: files, logger: logger, aiReady: aiReady, limiter: newIPLimiter(30, time.Minute)}
 }
+
 func (s *Server) Handler() http.Handler {
 	r := chi.NewRouter()
 	r.Use(s.requestLogger)
@@ -58,7 +64,7 @@ func (s *Server) Handler() http.Handler {
 		ctx, cancel := context.WithTimeout(r.Context(), 2*time.Second)
 		defer cancel()
 		if err := s.repo.Pool.Ping(ctx); err != nil {
-			writeError(w, http.StatusServiceUnavailable, "NOT_READY", "База данных недоступна", nil)
+			writeError(w, http.StatusServiceUnavailable, "NOT_READY", "База данных недоступна")
 			return
 		}
 		writeJSON(w, http.StatusOK, map[string]string{"status": "ready"})
@@ -97,30 +103,31 @@ func (s *Server) Handler() http.Handler {
 	})
 	return r
 }
+
 func (s *Server) authVK(w http.ResponseWriter, r *http.Request) {
 	if s.cfg.VKAppID == "" || s.cfg.VKAppSecret == "" {
-		writeError(w, http.StatusServiceUnavailable, "VK_AUTH_NOT_CONFIGURED", "Авторизация через VK не настроена на сервере", nil)
+		writeError(w, http.StatusServiceUnavailable, "VK_AUTH_NOT_CONFIGURED", "Авторизация через VK не настроена на сервере")
 		return
 	}
 	var req struct {
 		LaunchParams string `json:"launch_params"`
 	}
 	if err := decodeJSON(r, &req); err != nil {
-		writeError(w, http.StatusBadRequest, "VALIDATION_ERROR", "Некорректное тело запроса", nil)
+		writeError(w, http.StatusBadRequest, "VALIDATION_ERROR", "Некорректное тело запроса")
 		return
 	}
 	if len(req.LaunchParams) == 0 || len(req.LaunchParams) > 16*1024 {
-		writeError(w, http.StatusBadRequest, "VALIDATION_ERROR", "launch_params отсутствует или слишком длинный", nil)
+		writeError(w, http.StatusBadRequest, "VALIDATION_ERROR", "launch_params отсутствует или слишком длинный")
 		return
 	}
 	values, err := auth.VerifyLaunchParams(req.LaunchParams, s.cfg.VKAppID, s.cfg.VKAppSecret, time.Now())
 	if err != nil {
-		writeError(w, http.StatusUnauthorized, "INVALID_VK_SIGNATURE", "Параметры запуска VK не прошли проверку подписи", nil)
+		writeError(w, http.StatusUnauthorized, "INVALID_VK_SIGNATURE", "Параметры запуска VK не прошли проверку подписи")
 		return
 	}
 	vkID, err := strconv.ParseInt(values.Get("vk_user_id"), 10, 64)
 	if err != nil || vkID <= 0 {
-		writeError(w, http.StatusUnauthorized, "INVALID_VK_SIGNATURE", "Некорректный VK ID", nil)
+		writeError(w, http.StatusUnauthorized, "INVALID_VK_SIGNATURE", "Некорректный VK ID")
 		return
 	}
 	_, admin := s.cfg.AdminVKIDs[vkID]
@@ -136,53 +143,57 @@ func (s *Server) authVK(w http.ResponseWriter, r *http.Request) {
 	}
 	writeJSON(w, http.StatusOK, map[string]any{"access_token": token, "token_type": "Bearer", "expires_in": expires, "user": user})
 }
+
 func (s *Server) authenticate(next http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		header := r.Header.Get("Authorization")
 		if !strings.HasPrefix(header, "Bearer ") {
-			writeError(w, http.StatusUnauthorized, "INVALID_TOKEN", "Требуется Bearer access token", nil)
+			writeError(w, http.StatusUnauthorized, "INVALID_TOKEN", "Требуется Bearer access token")
 			return
 		}
 		id, vkID, err := s.tokens.Parse(strings.TrimSpace(strings.TrimPrefix(header, "Bearer ")))
 		if err != nil {
-			writeError(w, http.StatusUnauthorized, "INVALID_TOKEN", "Токен недействителен или истёк", nil)
+			writeError(w, http.StatusUnauthorized, "INVALID_TOKEN", "Токен недействителен или истёк")
 			return
 		}
 		user, err := s.repo.GetUser(r.Context(), id)
 		if err != nil || user.VKID != vkID {
-			writeError(w, http.StatusUnauthorized, "INVALID_TOKEN", "Пользователь токена не найден", nil)
+			writeError(w, http.StatusUnauthorized, "INVALID_TOKEN", "Пользователь токена не найден")
 			return
 		}
 		next.ServeHTTP(w, r.WithContext(context.WithValue(r.Context(), principalKey, principal{User: user})))
 	})
 }
+
 func (s *Server) requireRole(role string) func(http.Handler) http.Handler {
 	return func(next http.Handler) http.Handler {
 		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 			p, ok := getPrincipal(r.Context())
 			if !ok {
-				writeError(w, http.StatusUnauthorized, "INVALID_TOKEN", "Необходима авторизация", nil)
+				writeError(w, http.StatusUnauthorized, "INVALID_TOKEN", "Необходима авторизация")
 				return
 			}
 			if p.User.Role != role {
-				writeError(w, http.StatusForbidden, "FORBIDDEN", "Недостаточно прав для выполнения операции", nil)
+				writeError(w, http.StatusForbidden, "FORBIDDEN", "Недостаточно прав для выполнения операции")
 				return
 			}
 			next.ServeHTTP(w, r)
 		})
 	}
 }
+
 func (s *Server) me(w http.ResponseWriter, r *http.Request) {
 	p, _ := getPrincipal(r.Context())
 	writeJSON(w, http.StatusOK, p.User)
 }
+
 func (s *Server) setNotificationConsent(w http.ResponseWriter, r *http.Request) {
 	p, _ := getPrincipal(r.Context())
 	var req struct {
 		Enabled bool `json:"enabled"`
 	}
 	if err := decodeJSON(r, &req); err != nil {
-		writeError(w, http.StatusBadRequest, "VALIDATION_ERROR", "Ожидается поле enabled типа boolean", nil)
+		writeError(w, http.StatusBadRequest, "VALIDATION_ERROR", "Ожидается поле enabled типа boolean")
 		return
 	}
 	user, err := s.repo.SetNotificationConsent(r.Context(), p.User.ID, req.Enabled)
@@ -192,6 +203,7 @@ func (s *Server) setNotificationConsent(w http.ResponseWriter, r *http.Request) 
 	}
 	writeJSON(w, http.StatusOK, map[string]any{"notification_consent": user.NotificationConsent, "notification_consent_at": user.NotificationConsentAt})
 }
+
 func (s *Server) listConsultants(w http.ResponseWriter, r *http.Request) {
 	items, err := s.repo.ListConsultants(r.Context())
 	if err != nil {
@@ -200,8 +212,9 @@ func (s *Server) listConsultants(w http.ResponseWriter, r *http.Request) {
 	}
 	writeJSON(w, http.StatusOK, map[string]any{"items": items})
 }
+
 func (s *Server) getConsultant(w http.ResponseWriter, r *http.Request) {
-	id, ok := pathUUID(w, r, "id")
+	id, ok := pathUUID(w, r)
 	if !ok {
 		return
 	}
@@ -212,8 +225,9 @@ func (s *Server) getConsultant(w http.ResponseWriter, r *http.Request) {
 	}
 	writeJSON(w, http.StatusOK, item)
 }
+
 func (s *Server) listConsultantSlots(w http.ResponseWriter, r *http.Request) {
-	id, ok := pathUUID(w, r, "id")
+	id, ok := pathUUID(w, r)
 	if !ok {
 		return
 	}
@@ -228,10 +242,11 @@ func (s *Server) listConsultantSlots(w http.ResponseWriter, r *http.Request) {
 	}
 	writeJSON(w, http.StatusOK, map[string]any{"items": items})
 }
+
 func (s *Server) createConsultation(w http.ResponseWriter, r *http.Request) {
 	p, _ := getPrincipal(r.Context())
 	if p.User.Role != "student" {
-		writeError(w, http.StatusForbidden, "FORBIDDEN", "Записаться на консультацию могут только студенты", nil)
+		writeError(w, http.StatusForbidden, "FORBIDDEN", "Записаться на консультацию могут только студенты")
 		return
 	}
 	var req struct {
@@ -240,12 +255,12 @@ func (s *Server) createConsultation(w http.ResponseWriter, r *http.Request) {
 		ResumeFileID       *uuid.UUID `json:"resume_file_id"`
 	}
 	if err := decodeJSON(r, &req); err != nil || req.SlotID == uuid.Nil {
-		writeError(w, http.StatusBadRequest, "VALIDATION_ERROR", "Нужно указать корректный slot_id", nil)
+		writeError(w, http.StatusBadRequest, "VALIDATION_ERROR", "Нужно указать корректный slot_id")
 		return
 	}
 	req.ProblemDescription = strings.TrimSpace(req.ProblemDescription)
 	if len(req.ProblemDescription) > 5000 {
-		writeError(w, http.StatusUnprocessableEntity, "VALIDATION_ERROR", "Описание проблемы не должно превышать 5000 символов", nil)
+		writeError(w, http.StatusUnprocessableEntity, "VALIDATION_ERROR", "Описание проблемы не должно превышать 5000 символов")
 		return
 	}
 	c, err := s.consultations.Create(r.Context(), p.User.ID, req.SlotID, req.ProblemDescription, req.ResumeFileID)
@@ -255,6 +270,7 @@ func (s *Server) createConsultation(w http.ResponseWriter, r *http.Request) {
 	}
 	writeJSON(w, http.StatusCreated, c)
 }
+
 func (s *Server) listMyConsultations(w http.ResponseWriter, r *http.Request) {
 	p, _ := getPrincipal(r.Context())
 	items, err := s.repo.ListMyConsultations(r.Context(), p.User.ID)
@@ -264,9 +280,10 @@ func (s *Server) listMyConsultations(w http.ResponseWriter, r *http.Request) {
 	}
 	writeJSON(w, http.StatusOK, map[string]any{"items": items})
 }
+
 func (s *Server) getConsultation(w http.ResponseWriter, r *http.Request) {
 	p, _ := getPrincipal(r.Context())
-	id, ok := pathUUID(w, r, "id")
+	id, ok := pathUUID(w, r)
 	if !ok {
 		return
 	}
@@ -277,13 +294,14 @@ func (s *Server) getConsultation(w http.ResponseWriter, r *http.Request) {
 	}
 	writeJSON(w, http.StatusOK, c)
 }
+
 func (s *Server) rescheduleConsultation(w http.ResponseWriter, r *http.Request) {
 	p, _ := getPrincipal(r.Context())
 	if p.User.Role != "student" {
-		writeError(w, http.StatusForbidden, "FORBIDDEN", "Переносить консультации могут только студенты", nil)
+		writeError(w, http.StatusForbidden, "FORBIDDEN", "Переносить консультации могут только студенты")
 		return
 	}
-	id, ok := pathUUID(w, r, "id")
+	id, ok := pathUUID(w, r)
 	if !ok {
 		return
 	}
@@ -291,7 +309,7 @@ func (s *Server) rescheduleConsultation(w http.ResponseWriter, r *http.Request) 
 		NewSlotID uuid.UUID `json:"new_slot_id"`
 	}
 	if err := decodeJSON(r, &req); err != nil || req.NewSlotID == uuid.Nil {
-		writeError(w, http.StatusBadRequest, "VALIDATION_ERROR", "Нужно указать корректный new_slot_id", nil)
+		writeError(w, http.StatusBadRequest, "VALIDATION_ERROR", "Нужно указать корректный new_slot_id")
 		return
 	}
 	c, err := s.consultations.Reschedule(r.Context(), p.User.ID, id, req.NewSlotID)
@@ -301,13 +319,14 @@ func (s *Server) rescheduleConsultation(w http.ResponseWriter, r *http.Request) 
 	}
 	writeJSON(w, http.StatusOK, c)
 }
+
 func (s *Server) cancelConsultation(w http.ResponseWriter, r *http.Request) {
 	p, _ := getPrincipal(r.Context())
 	if p.User.Role != "student" {
-		writeError(w, http.StatusForbidden, "FORBIDDEN", "Отменять записи могут только студенты", nil)
+		writeError(w, http.StatusForbidden, "FORBIDDEN", "Отменять записи могут только студенты")
 		return
 	}
-	id, ok := pathUUID(w, r, "id")
+	id, ok := pathUUID(w, r)
 	if !ok {
 		return
 	}
@@ -317,6 +336,7 @@ func (s *Server) cancelConsultation(w http.ResponseWriter, r *http.Request) {
 	}
 	w.WriteHeader(http.StatusNoContent)
 }
+
 func (s *Server) listAdminConsultations(w http.ResponseWriter, r *http.Request) {
 	p, _ := getPrincipal(r.Context())
 	from, to, ok := dateRange(w, r, 180*24*time.Hour)
@@ -325,13 +345,13 @@ func (s *Server) listAdminConsultations(w http.ResponseWriter, r *http.Request) 
 	}
 	status := r.URL.Query().Get("status")
 	if status != "" && !oneOf(status, "pending", "confirmed", "completed", "cancelled") {
-		writeError(w, http.StatusBadRequest, "VALIDATION_ERROR", "Неизвестный статус консультации", nil)
+		writeError(w, http.StatusBadRequest, "VALIDATION_ERROR", "Неизвестный статус консультации")
 		return
 	}
 	limit := intQuery(r, "limit", 50)
 	offset := intQuery(r, "offset", 0)
 	if limit < 1 || limit > 100 || offset < 0 {
-		writeError(w, http.StatusBadRequest, "VALIDATION_ERROR", "limit должен быть 1..100, offset >= 0", nil)
+		writeError(w, http.StatusBadRequest, "VALIDATION_ERROR", "limit должен быть 1..100, offset >= 0")
 		return
 	}
 	items, err := s.repo.ListAdminConsultations(r.Context(), p.User.ID, status, from, to, limit, offset)
@@ -341,15 +361,18 @@ func (s *Server) listAdminConsultations(w http.ResponseWriter, r *http.Request) 
 	}
 	writeJSON(w, http.StatusOK, map[string]any{"items": items, "limit": limit, "offset": offset})
 }
+
 func (s *Server) confirmConsultation(w http.ResponseWriter, r *http.Request) {
 	s.changeConsultationStatus(w, r, "confirmed")
 }
+
 func (s *Server) completeConsultation(w http.ResponseWriter, r *http.Request) {
 	s.changeConsultationStatus(w, r, "completed")
 }
+
 func (s *Server) changeConsultationStatus(w http.ResponseWriter, r *http.Request, target string) {
 	p, _ := getPrincipal(r.Context())
-	id, ok := pathUUID(w, r, "id")
+	id, ok := pathUUID(w, r)
 	if !ok {
 		return
 	}
@@ -359,6 +382,7 @@ func (s *Server) changeConsultationStatus(w http.ResponseWriter, r *http.Request
 	}
 	w.WriteHeader(http.StatusNoContent)
 }
+
 func (s *Server) listAdminSlots(w http.ResponseWriter, r *http.Request) {
 	p, _ := getPrincipal(r.Context())
 	from, to, ok := dateRange(w, r, 180*24*time.Hour)
@@ -372,6 +396,7 @@ func (s *Server) listAdminSlots(w http.ResponseWriter, r *http.Request) {
 	}
 	writeJSON(w, http.StatusOK, map[string]any{"items": items})
 }
+
 func (s *Server) createSlot(w http.ResponseWriter, r *http.Request) {
 	p, _ := getPrincipal(r.Context())
 	var req struct {
@@ -379,11 +404,11 @@ func (s *Server) createSlot(w http.ResponseWriter, r *http.Request) {
 		EndsAt   time.Time `json:"ends_at"`
 	}
 	if err := decodeJSON(r, &req); err != nil || !req.EndsAt.After(req.StartsAt) || !req.StartsAt.After(time.Now()) {
-		writeError(w, http.StatusUnprocessableEntity, "VALIDATION_ERROR", "Укажите корректные даты будущего слота в формате RFC3339", nil)
+		writeError(w, http.StatusUnprocessableEntity, "VALIDATION_ERROR", "Укажите корректные даты будущего слота в формате RFC3339")
 		return
 	}
 	if req.EndsAt.Sub(req.StartsAt) > 4*time.Hour {
-		writeError(w, http.StatusUnprocessableEntity, "VALIDATION_ERROR", "Продолжительность слота не может превышать 4 часа", nil)
+		writeError(w, http.StatusUnprocessableEntity, "VALIDATION_ERROR", "Продолжительность слота не может превышать 4 часа")
 		return
 	}
 	item, err := s.consultations.CreateSlot(r.Context(), p.User.ID, req.StartsAt, req.EndsAt)
@@ -393,9 +418,10 @@ func (s *Server) createSlot(w http.ResponseWriter, r *http.Request) {
 	}
 	writeJSON(w, http.StatusCreated, item)
 }
+
 func (s *Server) updateSlot(w http.ResponseWriter, r *http.Request) {
 	p, _ := getPrincipal(r.Context())
-	id, ok := pathUUID(w, r, "id")
+	id, ok := pathUUID(w, r)
 	if !ok {
 		return
 	}
@@ -404,7 +430,7 @@ func (s *Server) updateSlot(w http.ResponseWriter, r *http.Request) {
 		EndsAt   time.Time `json:"ends_at"`
 	}
 	if err := decodeJSON(r, &req); err != nil || !req.EndsAt.After(req.StartsAt) || !req.StartsAt.After(time.Now()) {
-		writeError(w, http.StatusUnprocessableEntity, "VALIDATION_ERROR", "Укажите корректные даты будущего слота в формате RFC3339", nil)
+		writeError(w, http.StatusUnprocessableEntity, "VALIDATION_ERROR", "Укажите корректные даты будущего слота в формате RFC3339")
 		return
 	}
 	item, err := s.consultations.UpdateSlot(r.Context(), p.User.ID, id, req.StartsAt, req.EndsAt)
@@ -414,9 +440,10 @@ func (s *Server) updateSlot(w http.ResponseWriter, r *http.Request) {
 	}
 	writeJSON(w, http.StatusOK, item)
 }
+
 func (s *Server) blockSlot(w http.ResponseWriter, r *http.Request) {
 	p, _ := getPrincipal(r.Context())
-	id, ok := pathUUID(w, r, "id")
+	id, ok := pathUUID(w, r)
 	if !ok {
 		return
 	}
@@ -426,6 +453,7 @@ func (s *Server) blockSlot(w http.ResponseWriter, r *http.Request) {
 	}
 	w.WriteHeader(http.StatusNoContent)
 }
+
 func (s *Server) getAdminProfile(w http.ResponseWriter, r *http.Request) {
 	p, _ := getPrincipal(r.Context())
 	c, err := s.repo.GetAdminProfile(r.Context(), p.User.ID)
@@ -435,6 +463,7 @@ func (s *Server) getAdminProfile(w http.ResponseWriter, r *http.Request) {
 	}
 	writeJSON(w, http.StatusOK, c)
 }
+
 func (s *Server) updateAdminProfile(w http.ResponseWriter, r *http.Request) {
 	p, _ := getPrincipal(r.Context())
 	var req struct {
@@ -442,7 +471,7 @@ func (s *Server) updateAdminProfile(w http.ResponseWriter, r *http.Request) {
 		Description    string `json:"description"`
 	}
 	if err := decodeJSON(r, &req); err != nil || len(req.Specialization) > 200 || len(req.Description) > 3000 {
-		writeError(w, http.StatusBadRequest, "VALIDATION_ERROR", "Некорректный профиль консультанта", nil)
+		writeError(w, http.StatusBadRequest, "VALIDATION_ERROR", "Некорректный профиль консультанта")
 		return
 	}
 	c, err := s.repo.UpdateAdminProfile(r.Context(), p.User.ID, strings.TrimSpace(req.Specialization), strings.TrimSpace(req.Description))
@@ -456,79 +485,41 @@ func (s *Server) updateAdminProfile(w http.ResponseWriter, r *http.Request) {
 func (s *Server) uploadResume(w http.ResponseWriter, r *http.Request) {
 	p, _ := getPrincipal(r.Context())
 	if p.User.Role != "student" {
-		writeError(w, http.StatusForbidden, "FORBIDDEN", "Загружать резюме могут только студенты", nil)
+		writeError(w, http.StatusForbidden, "FORBIDDEN", "Загружать резюме могут только студенты")
 		return
 	}
 	r.Body = http.MaxBytesReader(w, r.Body, s.cfg.MaxUploadBytes+1024*1024)
-	if err := r.ParseMultipartForm(s.cfg.MaxUploadBytes); err != nil {
-		writeError(w, http.StatusRequestEntityTooLarge, "FILE_TOO_LARGE", "Файл превышает допустимый размер", nil)
+	if err := r.ParseMultipartForm(s.cfg.MaxUploadBytes); err != nil { //nolint:gosec // G120: MaxBytesReader above bounds the entire request, including multipart overhead.
+		writeError(w, http.StatusRequestEntityTooLarge, "FILE_TOO_LARGE", "Файл превышает допустимый размер")
 		return
 	}
 	defer func() {
 		if r.MultipartForm != nil {
-			_ = r.MultipartForm.RemoveAll()
+			if err := r.MultipartForm.RemoveAll(); err != nil {
+				s.logger.Warn("remove multipart temporary files failed", zap.Error(err))
+			}
 		}
 	}()
 	f, header, err := r.FormFile("file")
 	if err != nil {
-		writeError(w, http.StatusBadRequest, "VALIDATION_ERROR", "В multipart-запросе требуется поле file", nil)
+		writeError(w, http.StatusBadRequest, "VALIDATION_ERROR", "В multipart-запросе требуется поле file")
 		return
 	}
-	defer f.Close()
+	defer s.closeFile(f)
 	if header.Size <= 0 || header.Size > s.cfg.MaxUploadBytes {
-		writeError(w, http.StatusRequestEntityTooLarge, "FILE_TOO_LARGE", "Файл пуст или превышает допустимый размер", nil)
+		writeError(w, http.StatusRequestEntityTooLarge, "FILE_TOO_LARGE", "Файл пуст или превышает допустимый размер")
 		return
 	}
 	ext := strings.ToLower(filepath.Ext(header.Filename))
-	if ext != ".pdf" && ext != ".docx" {
-		writeError(w, http.StatusUnsupportedMediaType, "INVALID_FILE_TYPE", "Поддерживаются только PDF и DOCX", nil)
-		return
-	}
-	head := make([]byte, 512)
-	n, _ := io.ReadFull(f, head)
-	head = head[:n]
-	if _, err := f.Seek(0, io.SeekStart); err != nil {
-		writeError(w, http.StatusBadRequest, "INVALID_FILE_TYPE", "Не удалось прочитать файл", nil)
-		return
-	}
-	if ext == ".docx" {
-		zr, zipErr := zip.NewReader(f, header.Size)
-		if zipErr != nil {
-			writeError(w, http.StatusUnsupportedMediaType, "INVALID_FILE_TYPE", "Файл не является корректным DOCX", nil)
-			return
-		}
-		hasDocumentXML := false
-		for _, entry := range zr.File {
-			if entry.Name == "word/document.xml" {
-				hasDocumentXML = true
-			}
-			if entry.UncompressedSize64 > 10<<20 {
-				writeError(w, http.StatusUnsupportedMediaType, "INVALID_FILE_TYPE", "Внутренний компонент DOCX слишком велик", nil)
-				return
-			}
-		}
-		if !hasDocumentXML {
-			writeError(w, http.StatusUnsupportedMediaType, "INVALID_FILE_TYPE", "В DOCX отсутствует документ", nil)
-			return
-		}
-		if _, err := f.Seek(0, io.SeekStart); err != nil {
-			writeError(w, http.StatusBadRequest, "INVALID_FILE_TYPE", "Не удалось прочитать файл", nil)
-			return
-		}
-	}
-	mimeType := ""
-	if ext == ".pdf" && strings.HasPrefix(string(head), "%PDF-") {
-		mimeType = "application/pdf"
-	} else if ext == ".docx" && len(head) >= 4 && head[0] == 'P' && head[1] == 'K' {
-		mimeType = "application/vnd.openxmlformats-officedocument.wordprocessingml.document"
-	} else {
-		writeError(w, http.StatusUnsupportedMediaType, "INVALID_FILE_TYPE", "Содержимое файла не соответствует расширению", nil)
+	mimeType, status, err := validateResume(f, ext, header.Size)
+	if err != nil {
+		writeError(w, status, "INVALID_FILE_TYPE", err.Error())
 		return
 	}
 	key, size, err := s.files.Save(f, ext, s.cfg.MaxUploadBytes)
 	if err != nil {
 		if strings.Contains(err.Error(), "too large") {
-			writeError(w, http.StatusRequestEntityTooLarge, "FILE_TOO_LARGE", "Файл превышает допустимый размер", nil)
+			writeError(w, http.StatusRequestEntityTooLarge, "FILE_TOO_LARGE", "Файл превышает допустимый размер")
 		} else {
 			s.internalError(w, r, err)
 		}
@@ -541,15 +532,70 @@ func (s *Server) uploadResume(w http.ResponseWriter, r *http.Request) {
 	}
 	item, err := s.repo.CreateFile(r.Context(), models.UploadedFile{ID: id, OwnerUserID: p.User.ID, OriginalFilename: name, StorageKey: key, MIMEType: mimeType, SizeBytes: size})
 	if err != nil {
-		_ = s.files.Delete(key)
+		if deleteErr := s.files.Delete(key); deleteErr != nil {
+			s.logger.Error("remove unsaved resume failed", zap.Error(deleteErr))
+		}
 		s.internalError(w, r, err)
 		return
 	}
 	writeJSON(w, http.StatusCreated, item)
 }
+
+func validateResume(f multipart.File, ext string, size int64) (string, int, error) {
+	if ext != ".pdf" && ext != ".docx" {
+		return "", http.StatusUnsupportedMediaType, errors.New("поддерживаются только PDF и DOCX")
+	}
+	head := make([]byte, 512)
+	n, err := io.ReadFull(f, head)
+	if err != nil && !errors.Is(err, io.EOF) && !errors.Is(err, io.ErrUnexpectedEOF) {
+		return "", http.StatusBadRequest, errors.New("не удалось прочитать файл")
+	}
+	head = head[:n]
+	if _, err := f.Seek(0, io.SeekStart); err != nil {
+		return "", http.StatusBadRequest, errors.New("не удалось прочитать файл")
+	}
+	switch {
+	case ext == ".pdf" && strings.HasPrefix(string(head), "%PDF-"):
+		return "application/pdf", http.StatusOK, nil
+	case ext == ".docx" && len(head) >= 4 && head[0] == 'P' && head[1] == 'K':
+		if err := validateDOCX(f, size); err != nil {
+			return "", http.StatusUnsupportedMediaType, err
+		}
+		return "application/vnd.openxmlformats-officedocument.wordprocessingml.document", http.StatusOK, nil
+	default:
+		return "", http.StatusUnsupportedMediaType, errors.New("содержимое файла не соответствует расширению")
+	}
+}
+
+func validateDOCX(f io.ReaderAt, size int64) error {
+	zr, err := zip.NewReader(f, size)
+	if err != nil {
+		return errors.New("файл не является корректным DOCX")
+	}
+	hasDocumentXML := false
+	for _, entry := range zr.File {
+		if entry.Name == "word/document.xml" {
+			hasDocumentXML = true
+		}
+		if entry.UncompressedSize64 > 10<<20 {
+			return errors.New("внутренний компонент DOCX слишком велик")
+		}
+	}
+	if !hasDocumentXML {
+		return errors.New("в DOCX отсутствует документ")
+	}
+	return nil
+}
+
+func (s *Server) closeFile(f io.Closer) {
+	if err := f.Close(); err != nil {
+		s.logger.Warn("close file failed", zap.Error(err))
+	}
+}
+
 func (s *Server) getFile(w http.ResponseWriter, r *http.Request) {
 	p, _ := getPrincipal(r.Context())
-	id, ok := pathUUID(w, r, "id")
+	id, ok := pathUUID(w, r)
 	if !ok {
 		return
 	}
@@ -563,17 +609,20 @@ func (s *Server) getFile(w http.ResponseWriter, r *http.Request) {
 		s.internalError(w, r, err)
 		return
 	}
-	defer file.Close()
+	defer s.closeFile(file)
 	w.Header().Set("Content-Type", f.MIMEType)
 	w.Header().Set("X-Content-Type-Options", "nosniff")
 	_ = mime.FormatMediaType("attachment", map[string]string{"filename": f.OriginalFilename})
 	w.Header().Set("Content-Length", strconv.FormatInt(f.SizeBytes, 10))
 	w.WriteHeader(http.StatusOK)
-	_, _ = io.Copy(w, file)
+	if _, err := io.Copy(w, file); err != nil {
+		s.logger.Warn("send resume failed", zap.Error(err))
+	}
 }
+
 func (s *Server) deleteFile(w http.ResponseWriter, r *http.Request) {
 	p, _ := getPrincipal(r.Context())
-	id, ok := pathUUID(w, r, "id")
+	id, ok := pathUUID(w, r)
 	if !ok {
 		return
 	}
@@ -587,9 +636,10 @@ func (s *Server) deleteFile(w http.ResponseWriter, r *http.Request) {
 	}
 	w.WriteHeader(http.StatusNoContent)
 }
+
 func (s *Server) createAnalysis(w http.ResponseWriter, r *http.Request) {
 	if !s.aiReady {
-		writeError(w, http.StatusServiceUnavailable, "ANALYSIS_PROVIDER_UNAVAILABLE", "AI-анализ сейчас не настроен на сервере", nil)
+		writeError(w, http.StatusServiceUnavailable, "ANALYSIS_PROVIDER_UNAVAILABLE", "AI-анализ сейчас не настроен на сервере")
 		return
 	}
 	p, _ := getPrincipal(r.Context())
@@ -598,11 +648,11 @@ func (s *Server) createAnalysis(w http.ResponseWriter, r *http.Request) {
 		ExternalAIConsent bool      `json:"external_ai_consent"`
 	}
 	if err := decodeJSON(r, &req); err != nil || req.FileID == uuid.Nil {
-		writeError(w, http.StatusBadRequest, "VALIDATION_ERROR", "Нужно указать file_id", nil)
+		writeError(w, http.StatusBadRequest, "VALIDATION_ERROR", "Нужно указать file_id")
 		return
 	}
 	if !req.ExternalAIConsent {
-		writeError(w, http.StatusUnprocessableEntity, "EXTERNAL_AI_CONSENT_REQUIRED", "Для запуска анализа необходимо согласие на обработку текста резюме внешним ИИ-провайдером", nil)
+		writeError(w, http.StatusUnprocessableEntity, "EXTERNAL_AI_CONSENT_REQUIRED", "Для запуска анализа необходимо согласие на обработку текста резюме внешним ИИ-провайдером")
 		return
 	}
 	a, err := s.repo.CreateAnalysis(r.Context(), p.User.ID, req.FileID, req.ExternalAIConsent)
@@ -612,6 +662,7 @@ func (s *Server) createAnalysis(w http.ResponseWriter, r *http.Request) {
 	}
 	writeJSON(w, http.StatusAccepted, a)
 }
+
 func (s *Server) listAnalyses(w http.ResponseWriter, r *http.Request) {
 	p, _ := getPrincipal(r.Context())
 	items, err := s.repo.ListAnalyses(r.Context(), p.User.ID)
@@ -621,9 +672,10 @@ func (s *Server) listAnalyses(w http.ResponseWriter, r *http.Request) {
 	}
 	writeJSON(w, http.StatusOK, map[string]any{"items": items})
 }
+
 func (s *Server) getAnalysis(w http.ResponseWriter, r *http.Request) {
 	p, _ := getPrincipal(r.Context())
-	id, ok := pathUUID(w, r, "id")
+	id, ok := pathUUID(w, r)
 	if !ok {
 		return
 	}
@@ -638,28 +690,30 @@ func (s *Server) getAnalysis(w http.ResponseWriter, r *http.Request) {
 func (s *Server) repoError(w http.ResponseWriter, err error) {
 	switch {
 	case errors.Is(err, repository.ErrNotFound):
-		writeError(w, http.StatusNotFound, "NOT_FOUND", "Ресурс не найден", nil)
+		writeError(w, http.StatusNotFound, "NOT_FOUND", "Ресурс не найден")
 	case errors.Is(err, repository.ErrForbidden):
-		writeError(w, http.StatusForbidden, "FORBIDDEN", "Нет доступа к ресурсу", nil)
+		writeError(w, http.StatusForbidden, "FORBIDDEN", "Нет доступа к ресурсу")
 	case errors.Is(err, repository.ErrSlotUnavailable):
-		writeError(w, http.StatusConflict, "SLOT_UNAVAILABLE", "Выбранное время уже недоступно", nil)
+		writeError(w, http.StatusConflict, "SLOT_UNAVAILABLE", "Выбранное время уже недоступно")
 	case errors.Is(err, repository.ErrRescheduleLimit):
-		writeError(w, http.StatusConflict, "RESCHEDULE_LIMIT_REACHED", "Лимит переносов исчерпан", nil)
+		writeError(w, http.StatusConflict, "RESCHEDULE_LIMIT_REACHED", "Лимит переносов исчерпан")
 	case errors.Is(err, repository.ErrConsentRequired):
-		writeError(w, http.StatusUnprocessableEntity, "EXTERNAL_AI_CONSENT_REQUIRED", "Необходимо явное согласие на обработку резюме", nil)
+		writeError(w, http.StatusUnprocessableEntity, "EXTERNAL_AI_CONSENT_REQUIRED", "Необходимо явное согласие на обработку резюме")
 	case errors.Is(err, service.ErrInvalidInput):
-		writeError(w, http.StatusUnprocessableEntity, "VALIDATION_ERROR", "Данные не соответствуют бизнес-правилам", nil)
+		writeError(w, http.StatusUnprocessableEntity, "VALIDATION_ERROR", "Данные не соответствуют бизнес-правилам")
 	case errors.Is(err, repository.ErrConflict):
-		writeError(w, http.StatusConflict, "CONFLICT", "Операция конфликтует с текущим состоянием ресурса", nil)
+		writeError(w, http.StatusConflict, "CONFLICT", "Операция конфликтует с текущим состоянием ресурса")
 	default:
 		s.logger.Error("request failed", zap.Error(err))
-		writeError(w, http.StatusInternalServerError, "INTERNAL_ERROR", "Внутренняя ошибка сервера", nil)
+		writeError(w, http.StatusInternalServerError, "INTERNAL_ERROR", "Внутренняя ошибка сервера")
 	}
 }
+
 func (s *Server) internalError(w http.ResponseWriter, r *http.Request, err error) {
 	s.logger.Error("internal error", zap.String("method", r.Method), zap.String("path", r.URL.Path), zap.Error(err))
-	writeError(w, http.StatusInternalServerError, "INTERNAL_ERROR", "Внутренняя ошибка сервера", nil)
+	writeError(w, http.StatusInternalServerError, "INTERNAL_ERROR", "Внутренняя ошибка сервера")
 }
+
 func (s *Server) requestLogger(next http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		started := time.Now()
@@ -668,6 +722,7 @@ func (s *Server) requestLogger(next http.Handler) http.Handler {
 		s.logger.Info("http request", zap.String("method", r.Method), zap.String("path", r.URL.Path), zap.Int("status", ww.status), zap.Duration("duration", time.Since(started)))
 	})
 }
+
 func (s *Server) cors(next http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		origin := r.Header.Get("Origin")
@@ -679,18 +734,13 @@ func (s *Server) cors(next http.Handler) http.Handler {
 					break
 				}
 			}
-			if allowed {
-				w.Header().Set("Access-Control-Allow-Origin", origin)
-				w.Header().Set("Vary", "Origin")
-				w.Header().Set("Access-Control-Allow-Headers", "Authorization, Content-Type")
-				w.Header().Set("Access-Control-Allow-Methods", "GET, POST, PATCH, DELETE, OPTIONS")
-			} else if s.cfg.Env == "development" && isLocalOrigin(origin) {
+			if allowed || (s.cfg.Env == "development" && isLocalOrigin(origin)) {
 				w.Header().Set("Access-Control-Allow-Origin", origin)
 				w.Header().Set("Vary", "Origin")
 				w.Header().Set("Access-Control-Allow-Headers", "Authorization, Content-Type")
 				w.Header().Set("Access-Control-Allow-Methods", "GET, POST, PATCH, DELETE, OPTIONS")
 			} else {
-				writeError(w, http.StatusForbidden, "CORS_ORIGIN_DENIED", "Origin не разрешён", nil)
+				writeError(w, http.StatusForbidden, "CORS_ORIGIN_DENIED", "Origin не разрешён")
 				return
 			}
 		}
@@ -701,13 +751,14 @@ func (s *Server) cors(next http.Handler) http.Handler {
 		next.ServeHTTP(w, r)
 	})
 }
+
 func recoverer(log *zap.Logger) func(http.Handler) http.Handler {
 	return func(next http.Handler) http.Handler {
 		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 			defer func() {
 				if v := recover(); v != nil {
 					log.Error("panic recovered", zap.Any("panic", v))
-					writeError(w, http.StatusInternalServerError, "INTERNAL_ERROR", "Внутренняя ошибка сервера", nil)
+					writeError(w, http.StatusInternalServerError, "INTERNAL_ERROR", "Внутренняя ошибка сервера")
 				}
 			}()
 			next.ServeHTTP(w, r)
@@ -734,29 +785,33 @@ func decodeJSON(r *http.Request, dst any) error {
 	}
 	return nil
 }
+
 func writeJSON(w http.ResponseWriter, status int, v any) {
 	w.Header().Set("Content-Type", "application/json; charset=utf-8")
 	w.WriteHeader(status)
-	_ = json.NewEncoder(w).Encode(v)
-}
-func writeError(w http.ResponseWriter, status int, code, message string, details map[string]any) {
-	if details == nil {
-		details = map[string]any{}
+	if err := json.NewEncoder(w).Encode(v); err != nil {
+		slog.Error("encode HTTP response failed", "error", err)
 	}
-	writeJSON(w, status, models.APIError{Error: models.APIErrorDetail{Code: code, Message: message, Details: details}})
 }
-func pathUUID(w http.ResponseWriter, r *http.Request, key string) (uuid.UUID, bool) {
-	id, err := uuid.Parse(chi.URLParam(r, key))
+
+func writeError(w http.ResponseWriter, status int, code, message string) {
+	writeJSON(w, status, models.APIError{Error: models.APIErrorDetail{Code: code, Message: message, Details: map[string]any{}}})
+}
+
+func pathUUID(w http.ResponseWriter, r *http.Request) (uuid.UUID, bool) {
+	id, err := uuid.Parse(chi.URLParam(r, "id"))
 	if err != nil {
-		writeError(w, http.StatusBadRequest, "VALIDATION_ERROR", "Некорректный идентификатор ресурса", nil)
+		writeError(w, http.StatusBadRequest, "VALIDATION_ERROR", "Некорректный идентификатор ресурса")
 		return uuid.Nil, false
 	}
 	return id, true
 }
+
 func getPrincipal(ctx context.Context) (principal, bool) {
 	p, ok := ctx.Value(principalKey).(principal)
 	return p, ok
 }
+
 func dateRange(w http.ResponseWriter, r *http.Request, max time.Duration) (time.Time, time.Time, bool) {
 	now := time.Now().UTC()
 	from := now
@@ -765,23 +820,24 @@ func dateRange(w http.ResponseWriter, r *http.Request, max time.Duration) (time.
 	if raw := r.URL.Query().Get("from"); raw != "" {
 		from, err = time.Parse(time.RFC3339, raw)
 		if err != nil {
-			writeError(w, http.StatusBadRequest, "VALIDATION_ERROR", "from должен быть в формате RFC3339", nil)
+			writeError(w, http.StatusBadRequest, "VALIDATION_ERROR", "from должен быть в формате RFC3339")
 			return time.Time{}, time.Time{}, false
 		}
 	}
 	if raw := r.URL.Query().Get("to"); raw != "" {
 		to, err = time.Parse(time.RFC3339, raw)
 		if err != nil {
-			writeError(w, http.StatusBadRequest, "VALIDATION_ERROR", "to должен быть в формате RFC3339", nil)
+			writeError(w, http.StatusBadRequest, "VALIDATION_ERROR", "to должен быть в формате RFC3339")
 			return time.Time{}, time.Time{}, false
 		}
 	}
 	if !to.After(from) || to.Sub(from) > max {
-		writeError(w, http.StatusBadRequest, "VALIDATION_ERROR", "Некорректный диапазон дат", nil)
+		writeError(w, http.StatusBadRequest, "VALIDATION_ERROR", "Некорректный диапазон дат")
 		return time.Time{}, time.Time{}, false
 	}
 	return from.UTC(), to.UTC(), true
 }
+
 func intQuery(r *http.Request, key string, def int) int {
 	n, err := strconv.Atoi(r.URL.Query().Get(key))
 	if err != nil {
@@ -789,6 +845,7 @@ func intQuery(r *http.Request, key string, def int) int {
 	}
 	return n
 }
+
 func firstNonEmpty(values ...string) string {
 	for _, v := range values {
 		if v != "" {
@@ -797,6 +854,7 @@ func firstNonEmpty(values ...string) string {
 	}
 	return ""
 }
+
 func oneOf(value string, choices ...string) bool {
 	for _, c := range choices {
 		if value == c {
@@ -805,6 +863,7 @@ func oneOf(value string, choices ...string) bool {
 	}
 	return false
 }
+
 func isLocalOrigin(origin string) bool {
 	u, err := url.Parse(origin)
 	if err != nil {
@@ -828,6 +887,7 @@ type ipLimiter struct {
 func newIPLimiter(limit int, window time.Duration) *ipLimiter {
 	return &ipLimiter{items: make(map[string]ipEntry), limit: limit, window: window}
 }
+
 func (l *ipLimiter) Middleware(next http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		host, _, err := net.SplitHostPort(r.RemoteAddr)
@@ -852,7 +912,7 @@ func (l *ipLimiter) Middleware(next http.Handler) http.Handler {
 		}
 		l.mu.Unlock()
 		if over {
-			writeError(w, http.StatusTooManyRequests, "RATE_LIMITED", "Слишком много запросов", nil)
+			writeError(w, http.StatusTooManyRequests, "RATE_LIMITED", "Слишком много запросов")
 			return
 		}
 		next.ServeHTTP(w, r)

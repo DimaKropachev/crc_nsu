@@ -67,15 +67,25 @@ migrate -path migrations -database "$DATABASE_URL" up
 go run ./cmd/api
 ```
 
-Команды разработчика:
+Команды разработчика выполняются из каталога `backend` через Task v3.
+Единый `Taskfile.yaml` заменяет Makefile. Для установки инструментов нужны Go и доступ
+к Go module proxy; закреплённые версии устанавливаются автоматически в `backend/bin`
+при первом запуске `format` / `lint`. Инструменты могут требовать более новую версию
+Go, чем само приложение (при необходимости используется `GOTOOLCHAIN=auto`).
+Команды работают в Windows, Linux и macOS без `make`, `find` и `xargs`.
+Переменные окружения загружаются пользователем, Task не читает `.env` автоматически.
 
 ```bash
-make fmt
-make test
-make vet
-make build
-make migrate-up
-make migrate-down
+task --list
+task run
+task format # также task fmt
+task lint
+task test
+task vet
+task build # bin/api или bin/api.exe
+task check # lint -> vet -> test -> build
+task migrate-up
+task migrate-down # откат всех миграций с подтверждением migrate
 ```
 
 Интеграционный тест жизненного цикла консультаций и конкурентного бронирования пропускается, если не задан `TEST_DATABASE_URL`. Запускай его только против отдельной тестовой PostgreSQL-базы: тест создаёт и удаляет временную схему.

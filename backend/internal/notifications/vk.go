@@ -3,6 +3,7 @@ package notifications
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"hash/crc32"
 	"net/http"
@@ -25,7 +26,8 @@ type VKMessenger struct {
 func NewVKMessenger(token, version string) *VKMessenger {
 	return &VKMessenger{token: token, version: version, client: &http.Client{Timeout: 8 * time.Second}}
 }
-func (v *VKMessenger) SendReminder(ctx context.Context, vkID int64, reminderID uuid.UUID, message string) error {
+
+func (v *VKMessenger) SendReminder(ctx context.Context, vkID int64, reminderID uuid.UUID, message string) (err error) {
 	randomID := int64(crc32.ChecksumIEEE([]byte(reminderID.String())))
 	form := url.Values{"user_id": {strconv.FormatInt(vkID, 10)}, "random_id": {strconv.FormatInt(randomID, 10)}, "message": {message}, "access_token": {v.token}, "v": {v.version}}
 	req, err := http.NewRequestWithContext(ctx, http.MethodPost, "https://api.vk.com/method/messages.send", strings.NewReader(form.Encode()))
@@ -37,7 +39,7 @@ func (v *VKMessenger) SendReminder(ctx context.Context, vkID int64, reminderID u
 	if err != nil {
 		return err
 	}
-	defer resp.Body.Close()
+	defer func() { err = errors.Join(err, resp.Body.Close()) }()
 	var payload struct {
 		Response *int64 `json:"response"`
 		Error    *struct {

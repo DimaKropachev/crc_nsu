@@ -97,6 +97,7 @@ func env(key, fallback string) string {
 	}
 	return fallback
 }
+
 func duration(key string, fallback time.Duration) time.Duration {
 	if v := os.Getenv(key); v != "" {
 		if parsed, err := time.ParseDuration(v); err == nil {
@@ -105,6 +106,7 @@ func duration(key string, fallback time.Duration) time.Duration {
 	}
 	return fallback
 }
+
 func integer(key string, fallback int) int {
 	if v := os.Getenv(key); v != "" {
 		if parsed, err := strconv.Atoi(v); err == nil {
@@ -113,6 +115,7 @@ func integer(key string, fallback int) int {
 	}
 	return fallback
 }
+
 func split(v string) []string {
 	var out []string
 	for _, item := range strings.Split(v, ",") {
@@ -122,6 +125,7 @@ func split(v string) []string {
 	}
 	return out
 }
+
 func parseIDs(v string) map[int64]struct{} {
 	result := make(map[int64]struct{})
 	for _, p := range strings.Split(v, ",") {

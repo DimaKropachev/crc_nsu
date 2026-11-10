@@ -3,11 +3,14 @@ package main
 import (
 	"context"
 	"errors"
+	"log/slog"
 	"net/http"
 	"os"
 	"os/signal"
 	"syscall"
 	"time"
+
+	"go.uber.org/zap"
 
 	"career-consultations-backend/internal/ai"
 	"career-consultations-backend/internal/auth"
@@ -17,21 +20,25 @@ import (
 	"career-consultations-backend/internal/repository"
 	"career-consultations-backend/internal/storage"
 	"career-consultations-backend/internal/workers"
-	"go.uber.org/zap"
 )
 
 func main() {
 	cfg, err := config.Load()
 	if err != nil {
-		_, _ = os.Stderr.WriteString("configuration error: " + err.Error() + "\n")
+		slog.Error("configuration error", "error", err)
 		os.Exit(1)
 	}
+
 	logger, err := buildLogger(cfg.Env)
 	if err != nil {
-		_, _ = os.Stderr.WriteString("logger initialization failed: " + err.Error() + "\n")
+		slog.Error("logger initialization failed", "error", err)
 		os.Exit(1)
 	}
-	defer func() { _ = logger.Sync() }()
+	defer func() {
+		if err := logger.Sync(); err != nil {
+			slog.Warn("logger sync failed", "error", err)
+		}
+	}()
 
 	rootCtx, stop := signal.NotifyContext(context.Background(), syscall.SIGINT, syscall.SIGTERM)
 	defer stop()
@@ -80,7 +87,9 @@ func main() {
 	defer cancel()
 	if err := server.Shutdown(shutdownCtx); err != nil {
 		logger.Error("graceful shutdown failed", zap.Error(err))
-		_ = server.Close()
+		if closeErr := server.Close(); closeErr != nil {
+			logger.Error("HTTP server close failed", zap.Error(closeErr))
+		}
 	}
 	logger.Info("server stopped")
 }

@@ -5,14 +5,16 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"log/slog"
 	"strings"
 	"time"
 
-	"career-consultations-backend/internal/models"
 	"github.com/google/uuid"
 	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgconn"
 	"github.com/jackc/pgx/v5/pgxpool"
+
+	"career-consultations-backend/internal/models"
 )
 
 var (
@@ -24,7 +26,9 @@ var (
 	ErrConsentRequired = errors.New("external AI consent required")
 )
 
-type Postgres struct{ Pool *pgxpool.Pool }
+type Postgres struct {
+	Pool *pgxpool.Pool
+}
 
 func New(ctx context.Context, databaseURL string) (*Postgres, error) {
 	cfg, err := pgxpool.ParseConfig(databaseURL)
@@ -66,6 +70,7 @@ RETURNING id,vk_id,first_name,last_name,avatar_url,role,created_at,updated_at,la
 	}
 	return user, nil
 }
+
 func (r *Postgres) GetUser(ctx context.Context, id uuid.UUID) (models.User, error) {
 	var u models.User
 	err := r.Pool.QueryRow(ctx, `SELECT id,vk_id,first_name,last_name,avatar_url,role,created_at,updated_at,last_login_at,notification_consent,notification_consent_at FROM users WHERE id=$1`, id).Scan(&u.ID, &u.VKID, &u.FirstName, &u.LastName, &u.AvatarURL, &u.Role, &u.CreatedAt, &u.UpdatedAt, &u.LastLoginAt, &u.NotificationConsent, &u.NotificationConsentAt)
@@ -74,6 +79,7 @@ func (r *Postgres) GetUser(ctx context.Context, id uuid.UUID) (models.User, erro
 	}
 	return u, err
 }
+
 func (r *Postgres) GetConsultantID(ctx context.Context, userID uuid.UUID) (uuid.UUID, error) {
 	var id uuid.UUID
 	err := r.Pool.QueryRow(ctx, `SELECT id FROM consultant_profiles WHERE user_id=$1 AND is_active=true`, userID).Scan(&id)
@@ -82,6 +88,7 @@ func (r *Postgres) GetConsultantID(ctx context.Context, userID uuid.UUID) (uuid.
 	}
 	return id, err
 }
+
 func (r *Postgres) ListConsultants(ctx context.Context) ([]models.Consultant, error) {
 	rows, err := r.Pool.Query(ctx, `SELECT cp.id,cp.user_id,u.first_name,u.last_name,u.avatar_url,cp.specialization,cp.description,cp.is_active FROM consultant_profiles cp JOIN users u ON u.id=cp.user_id WHERE cp.is_active=true ORDER BY u.last_name,u.first_name`)
 	if err != nil {
@@ -98,6 +105,7 @@ func (r *Postgres) ListConsultants(ctx context.Context) ([]models.Consultant, er
 	}
 	return out, rows.Err()
 }
+
 func (r *Postgres) GetConsultant(ctx context.Context, id uuid.UUID) (models.Consultant, error) {
 	var c models.Consultant
 	err := r.Pool.QueryRow(ctx, `SELECT cp.id,cp.user_id,u.first_name,u.last_name,u.avatar_url,cp.specialization,cp.description,cp.is_active FROM consultant_profiles cp JOIN users u ON u.id=cp.user_id WHERE cp.id=$1 AND cp.is_active=true`, id).Scan(&c.ID, &c.UserID, &c.FirstName, &c.LastName, &c.AvatarURL, &c.Specialization, &c.Description, &c.IsActive)
@@ -106,6 +114,7 @@ func (r *Postgres) GetConsultant(ctx context.Context, id uuid.UUID) (models.Cons
 	}
 	return c, err
 }
+
 func (r *Postgres) ListSlots(ctx context.Context, consultantID uuid.UUID, from, to time.Time) ([]models.Slot, error) {
 	rows, err := r.Pool.Query(ctx, `SELECT id,consultant_id,starts_at,ends_at,status,created_at,updated_at FROM consultation_slots WHERE consultant_id=$1 AND status='available' AND starts_at >= $2 AND starts_at < $3 AND starts_at > now() ORDER BY starts_at`, consultantID, from, to)
 	if err != nil {
@@ -122,6 +131,7 @@ func (r *Postgres) ListSlots(ctx context.Context, consultantID uuid.UUID, from, 
 	}
 	return out, rows.Err()
 }
+
 func (r *Postgres) ListAdminSlots(ctx context.Context, userID uuid.UUID, from, to time.Time) ([]models.Slot, error) {
 	cid, err := r.GetConsultantID(ctx, userID)
 	if err != nil {
@@ -142,6 +152,7 @@ func (r *Postgres) ListAdminSlots(ctx context.Context, userID uuid.UUID, from, t
 	}
 	return out, rows.Err()
 }
+
 func (r *Postgres) CreateSlot(ctx context.Context, userID uuid.UUID, start, end time.Time) (models.Slot, error) {
 	cid, err := r.GetConsultantID(ctx, userID)
 	if err != nil {
@@ -154,6 +165,7 @@ func (r *Postgres) CreateSlot(ctx context.Context, userID uuid.UUID, start, end 
 	}
 	return s, err
 }
+
 func (r *Postgres) UpdateSlot(ctx context.Context, userID, slotID uuid.UUID, start, end time.Time) (models.Slot, error) {
 	cid, err := r.GetConsultantID(ctx, userID)
 	if err != nil {
@@ -169,6 +181,7 @@ func (r *Postgres) UpdateSlot(ctx context.Context, userID, slotID uuid.UUID, sta
 	}
 	return s, err
 }
+
 func (r *Postgres) BlockSlot(ctx context.Context, userID, slotID uuid.UUID) error {
 	cid, err := r.GetConsultantID(ctx, userID)
 	if err != nil {
@@ -189,7 +202,7 @@ func (r *Postgres) CreateConsultation(ctx context.Context, studentID, slotID uui
 	if err != nil {
 		return models.Consultation{}, err
 	}
-	defer tx.Rollback(ctx)
+	defer rollbackTransaction(ctx, tx)
 	var consultantID uuid.UUID
 	var slotStatus string
 	var starts, end time.Time
@@ -249,6 +262,7 @@ func scanConsultation(row pgx.Row) (models.Consultation, error) {
 	err := row.Scan(&c.ID, &c.StudentID, &c.ConsultantID, &c.SlotID, &c.StartsAt, &c.EndsAt, &c.ProblemDescription, &c.ResumeFileID, &c.Status, &c.RescheduleCount, &c.ConsultantName, &c.StudentName, &c.CreatedAt, &c.UpdatedAt)
 	return c, err
 }
+
 func (r *Postgres) GetConsultation(ctx context.Context, actorID uuid.UUID, role string, id uuid.UUID) (models.Consultation, error) {
 	query := consultationSelect + ` WHERE c.id=$1 AND (c.student_id=$2 OR (c.consultant_id IN (SELECT id FROM consultant_profiles WHERE user_id=$2) AND $3='admin'))`
 	c, err := scanConsultation(r.Pool.QueryRow(ctx, query, id, actorID, role))
@@ -257,9 +271,11 @@ func (r *Postgres) GetConsultation(ctx context.Context, actorID uuid.UUID, role 
 	}
 	return c, err
 }
+
 func (r *Postgres) ListMyConsultations(ctx context.Context, userID uuid.UUID) ([]models.Consultation, error) {
 	return r.listConsultations(ctx, consultationSelect+` WHERE c.student_id=$1 ORDER BY s.starts_at DESC`, userID)
 }
+
 func (r *Postgres) ListAdminConsultations(ctx context.Context, userID uuid.UUID, status string, from, to time.Time, limit, offset int) ([]models.Consultation, error) {
 	cid, err := r.GetConsultantID(ctx, userID)
 	if err != nil {
@@ -274,13 +290,10 @@ func (r *Postgres) ListAdminConsultations(ctx context.Context, userID uuid.UUID,
 	} else {
 		query += ` ORDER BY s.starts_at LIMIT $4 OFFSET $5`
 	}
-	if status != "" {
-		args = append(args, limit, offset)
-	} else {
-		args = append(args, limit, offset)
-	}
+	args = append(args, limit, offset)
 	return r.listConsultations(ctx, query, args...)
 }
+
 func (r *Postgres) listConsultations(ctx context.Context, query string, args ...any) ([]models.Consultation, error) {
 	rows, err := r.Pool.Query(ctx, query, args...)
 	if err != nil {
@@ -297,12 +310,13 @@ func (r *Postgres) listConsultations(ctx context.Context, query string, args ...
 	}
 	return out, rows.Err()
 }
+
 func (r *Postgres) Reschedule(ctx context.Context, userID, consultationID, newSlotID uuid.UUID) (models.Consultation, error) {
 	tx, err := r.Pool.Begin(ctx)
 	if err != nil {
 		return models.Consultation{}, err
 	}
-	defer tx.Rollback(ctx)
+	defer rollbackTransaction(ctx, tx)
 	var studentID, oldSlotID, consultantID uuid.UUID
 	var status string
 	var count int
@@ -351,23 +365,12 @@ func (r *Postgres) Reschedule(ctx context.Context, userID, consultationID, newSl
 	if err != nil {
 		return models.Consultation{}, err
 	}
-	oldJSON, _ := json.Marshal(map[string]any{"slot_id": oldSlotID, "status": status})
-	newJSON, _ := json.Marshal(map[string]any{"slot_id": newSlotID, "status": "pending"})
 	var c models.Consultation
 	err = tx.QueryRow(ctx, `UPDATE consultations SET slot_id=$2,consultant_id=$3,status='pending',reschedule_count=reschedule_count+1,updated_at=now() WHERE id=$1 RETURNING id,student_id,consultant_id,slot_id,problem_description,resume_file_id,status,reschedule_count,created_at,updated_at`, consultationID, newSlotID, newConsultant).Scan(&c.ID, &c.StudentID, &c.ConsultantID, &c.SlotID, &c.ProblemDescription, &c.ResumeFileID, &c.Status, &c.RescheduleCount, &c.CreatedAt, &c.UpdatedAt)
 	if err != nil {
 		return c, err
 	}
-	_, err = tx.Exec(ctx, `INSERT INTO consultation_history(consultation_id,actor_user_id,action,old_value,new_value) VALUES($1,$2,'rescheduled',$3,$4)`, consultationID, userID, oldJSON, newJSON)
-	if err != nil {
-		return c, err
-	}
-	_, err = tx.Exec(ctx, `UPDATE consultation_reminders SET status='cancelled',updated_at=now() WHERE consultation_id=$1 AND status IN ('pending','sending')`, consultationID)
-	if err != nil {
-		return c, err
-	}
-	_, err = tx.Exec(ctx, `INSERT INTO consultation_reminders(consultation_id,slot_id,scheduled_at,status) VALUES($1,$2,$3,'pending') ON CONFLICT(consultation_id,slot_id,reminder_type) DO UPDATE SET scheduled_at=EXCLUDED.scheduled_at,status='pending',attempts=0,last_error=NULL,sent_at=NULL,updated_at=now()`, consultationID, newSlotID, start.Add(-24*time.Hour))
-	if err != nil {
+	if err := recordReschedule(ctx, tx, c, userID, oldSlotID, status, start); err != nil {
 		return c, err
 	}
 	if err = tx.Commit(ctx); err != nil {
@@ -377,12 +380,38 @@ func (r *Postgres) Reschedule(ctx context.Context, userID, consultationID, newSl
 	c.EndsAt = end
 	return c, nil
 }
+
+func recordReschedule(ctx context.Context, tx pgx.Tx, c models.Consultation, userID, oldSlotID uuid.UUID, oldStatus string, start time.Time) error {
+	oldJSON, err := json.Marshal(map[string]any{"slot_id": oldSlotID, "status": oldStatus})
+	if err != nil {
+		return err
+	}
+	newJSON, err := json.Marshal(map[string]any{"slot_id": c.SlotID, "status": c.Status})
+	if err != nil {
+		return err
+	}
+	if _, err := tx.Exec(ctx, `INSERT INTO consultation_history(consultation_id,actor_user_id,action,old_value,new_value) VALUES($1,$2,'rescheduled',$3,$4)`, c.ID, userID, oldJSON, newJSON); err != nil {
+		return err
+	}
+	if _, err := tx.Exec(ctx, `UPDATE consultation_reminders SET status='cancelled',updated_at=now() WHERE consultation_id=$1 AND status IN ('pending','sending')`, c.ID); err != nil {
+		return err
+	}
+	_, err = tx.Exec(ctx, `INSERT INTO consultation_reminders(consultation_id,slot_id,scheduled_at,status) VALUES($1,$2,$3,'pending') ON CONFLICT(consultation_id,slot_id,reminder_type) DO UPDATE SET scheduled_at=EXCLUDED.scheduled_at,status='pending',attempts=0,last_error=NULL,sent_at=NULL,updated_at=now()`, c.ID, c.SlotID, start.Add(-24*time.Hour))
+	return err
+}
+
+func rollbackTransaction(ctx context.Context, tx pgx.Tx) {
+	if err := tx.Rollback(ctx); err != nil && !errors.Is(err, pgx.ErrTxClosed) {
+		slog.ErrorContext(ctx, "transaction rollback failed", "error", err)
+	}
+}
+
 func (r *Postgres) CancelConsultation(ctx context.Context, userID, consultationID uuid.UUID) error {
 	tx, err := r.Pool.Begin(ctx)
 	if err != nil {
 		return err
 	}
-	defer tx.Rollback(ctx)
+	defer rollbackTransaction(ctx, tx)
 	var studentID, slotID uuid.UUID
 	var status string
 	err = tx.QueryRow(ctx, `SELECT student_id,slot_id,status FROM consultations WHERE id=$1 FOR UPDATE`, consultationID).Scan(&studentID, &slotID, &status)
@@ -416,6 +445,7 @@ func (r *Postgres) CancelConsultation(ctx context.Context, userID, consultationI
 	}
 	return tx.Commit(ctx)
 }
+
 func (r *Postgres) SetConsultationStatus(ctx context.Context, userID, consultationID uuid.UUID, target string) error {
 	cid, err := r.GetConsultantID(ctx, userID)
 	if err != nil {
@@ -425,7 +455,7 @@ func (r *Postgres) SetConsultationStatus(ctx context.Context, userID, consultati
 	if err != nil {
 		return err
 	}
-	defer tx.Rollback(ctx)
+	defer rollbackTransaction(ctx, tx)
 	var status string
 	err = tx.QueryRow(ctx, `SELECT status FROM consultations WHERE id=$1 AND consultant_id=$2 FOR UPDATE`, consultationID, cid).Scan(&status)
 	if errors.Is(err, pgx.ErrNoRows) {
@@ -448,6 +478,7 @@ func (r *Postgres) SetConsultationStatus(ctx context.Context, userID, consultati
 	}
 	return tx.Commit(ctx)
 }
+
 func (r *Postgres) GetAdminProfile(ctx context.Context, userID uuid.UUID) (models.Consultant, error) {
 	var c models.Consultant
 	err := r.Pool.QueryRow(ctx, `SELECT cp.id,cp.user_id,u.first_name,u.last_name,u.avatar_url,cp.specialization,cp.description,cp.is_active FROM consultant_profiles cp JOIN users u ON u.id=cp.user_id WHERE cp.user_id=$1`, userID).Scan(&c.ID, &c.UserID, &c.FirstName, &c.LastName, &c.AvatarURL, &c.Specialization, &c.Description, &c.IsActive)
@@ -456,6 +487,7 @@ func (r *Postgres) GetAdminProfile(ctx context.Context, userID uuid.UUID) (model
 	}
 	return c, err
 }
+
 func (r *Postgres) UpdateAdminProfile(ctx context.Context, userID uuid.UUID, specialization, description string) (models.Consultant, error) {
 	_, err := r.Pool.Exec(ctx, `UPDATE consultant_profiles SET specialization=$2,description=$3,updated_at=now() WHERE user_id=$1`, userID, specialization, description)
 	if err != nil {
@@ -463,10 +495,12 @@ func (r *Postgres) UpdateAdminProfile(ctx context.Context, userID uuid.UUID, spe
 	}
 	return r.GetAdminProfile(ctx, userID)
 }
+
 func (r *Postgres) CreateFile(ctx context.Context, file models.UploadedFile) (models.UploadedFile, error) {
 	err := r.Pool.QueryRow(ctx, `INSERT INTO uploaded_files(id,owner_user_id,original_filename,storage_key,mime_type,size_bytes) VALUES($1,$2,$3,$4,$5,$6) RETURNING created_at`, file.ID, file.OwnerUserID, file.OriginalFilename, file.StorageKey, file.MIMEType, file.SizeBytes).Scan(&file.CreatedAt)
 	return file, err
 }
+
 func (r *Postgres) GetFile(ctx context.Context, id, owner uuid.UUID) (models.UploadedFile, error) {
 	var f models.UploadedFile
 	err := r.Pool.QueryRow(ctx, `SELECT id,owner_user_id,original_filename,storage_key,mime_type,size_bytes,created_at FROM uploaded_files WHERE id=$1 AND owner_user_id=$2`, id, owner).Scan(&f.ID, &f.OwnerUserID, &f.OriginalFilename, &f.StorageKey, &f.MIMEType, &f.SizeBytes, &f.CreatedAt)
@@ -475,6 +509,7 @@ func (r *Postgres) GetFile(ctx context.Context, id, owner uuid.UUID) (models.Upl
 	}
 	return f, err
 }
+
 func (r *Postgres) DeleteFile(ctx context.Context, id, owner uuid.UUID) (models.UploadedFile, error) {
 	var f models.UploadedFile
 	err := r.Pool.QueryRow(ctx, `DELETE FROM uploaded_files f WHERE f.id=$1 AND f.owner_user_id=$2 AND NOT EXISTS(SELECT 1 FROM consultations c WHERE c.resume_file_id=f.id) AND NOT EXISTS(SELECT 1 FROM resume_analyses a WHERE a.file_id=f.id) RETURNING id,owner_user_id,original_filename,storage_key,mime_type,size_bytes,created_at`, id, owner).Scan(&f.ID, &f.OwnerUserID, &f.OriginalFilename, &f.StorageKey, &f.MIMEType, &f.SizeBytes, &f.CreatedAt)
@@ -483,6 +518,7 @@ func (r *Postgres) DeleteFile(ctx context.Context, id, owner uuid.UUID) (models.
 	}
 	return f, err
 }
+
 func (r *Postgres) CreateAnalysis(ctx context.Context, userID, fileID uuid.UUID, externalAIConsent bool) (models.ResumeAnalysis, error) {
 	if !externalAIConsent {
 		return models.ResumeAnalysis{}, ErrConsentRequired
@@ -502,6 +538,7 @@ func (r *Postgres) CreateAnalysis(ctx context.Context, userID, fileID uuid.UUID,
 	err = r.Pool.QueryRow(ctx, `INSERT INTO resume_analyses(user_id,file_id,external_ai_consent,external_ai_consent_at) VALUES($1,$2,true,now()) RETURNING id,user_id,file_id,status,result,error_code,attempt_count,created_at,started_at,completed_at,updated_at`, userID, fileID).Scan(&a.ID, &a.UserID, &a.FileID, &a.Status, &a.Result, &a.ErrorCode, &a.AttemptCount, &a.CreatedAt, &a.StartedAt, &a.CompletedAt, &a.UpdatedAt)
 	return a, err
 }
+
 func (r *Postgres) GetAnalysis(ctx context.Context, userID, id uuid.UUID) (models.ResumeAnalysis, error) {
 	var a models.ResumeAnalysis
 	err := r.Pool.QueryRow(ctx, `SELECT id,user_id,file_id,status,result,error_code,attempt_count,created_at,started_at,completed_at,updated_at FROM resume_analyses WHERE id=$1 AND user_id=$2`, id, userID).Scan(&a.ID, &a.UserID, &a.FileID, &a.Status, &a.Result, &a.ErrorCode, &a.AttemptCount, &a.CreatedAt, &a.StartedAt, &a.CompletedAt, &a.UpdatedAt)
@@ -510,6 +547,7 @@ func (r *Postgres) GetAnalysis(ctx context.Context, userID, id uuid.UUID) (model
 	}
 	return a, err
 }
+
 func (r *Postgres) ListAnalyses(ctx context.Context, userID uuid.UUID) ([]models.ResumeAnalysis, error) {
 	rows, err := r.Pool.Query(ctx, `SELECT id,user_id,file_id,status,result,error_code,attempt_count,created_at,started_at,completed_at,updated_at FROM resume_analyses WHERE user_id=$1 ORDER BY created_at DESC LIMIT 50`, userID)
 	if err != nil {
@@ -526,6 +564,7 @@ func (r *Postgres) ListAnalyses(ctx context.Context, userID uuid.UUID) ([]models
 	}
 	return out, rows.Err()
 }
+
 func (r *Postgres) ClaimAnalysis(ctx context.Context) (models.ResumeAnalysis, models.UploadedFile, bool, error) {
 	_, err := r.Pool.Exec(ctx, `UPDATE resume_analyses SET status='queued',updated_at=now() WHERE status='processing' AND external_ai_consent=true AND updated_at < now()-interval '10 minutes'`)
 	if err != nil {
@@ -535,7 +574,7 @@ func (r *Postgres) ClaimAnalysis(ctx context.Context) (models.ResumeAnalysis, mo
 	if err != nil {
 		return models.ResumeAnalysis{}, models.UploadedFile{}, false, err
 	}
-	defer tx.Rollback(ctx)
+	defer rollbackTransaction(ctx, tx)
 	var a models.ResumeAnalysis
 	var f models.UploadedFile
 	err = tx.QueryRow(ctx, `SELECT id,user_id,file_id FROM resume_analyses WHERE status='queued' AND external_ai_consent=true ORDER BY created_at LIMIT 1 FOR UPDATE SKIP LOCKED`).Scan(&a.ID, &a.UserID, &a.FileID)
@@ -558,10 +597,12 @@ func (r *Postgres) ClaimAnalysis(ctx context.Context) (models.ResumeAnalysis, mo
 	}
 	return a, f, true, nil
 }
+
 func (r *Postgres) CompleteAnalysis(ctx context.Context, id uuid.UUID, result json.RawMessage) error {
 	_, err := r.Pool.Exec(ctx, `UPDATE resume_analyses SET status='completed',result=$2::jsonb,error_code=NULL,completed_at=now(),updated_at=now() WHERE id=$1`, id, string(result))
 	return err
 }
+
 func (r *Postgres) FailAnalysis(ctx context.Context, id uuid.UUID, code string, retry bool) error {
 	status := "failed"
 	if retry {
@@ -570,6 +611,7 @@ func (r *Postgres) FailAnalysis(ctx context.Context, id uuid.UUID, code string, 
 	_, err := r.Pool.Exec(ctx, `UPDATE resume_analyses SET status=$2,error_code=$3,completed_at=CASE WHEN $2='failed' THEN now() ELSE NULL END,updated_at=now() WHERE id=$1`, id, status, code)
 	return err
 }
+
 func isConstraint(err error) bool {
 	var pgerr *pgconn.PgError
 	if errors.As(err, &pgerr) {
@@ -603,7 +645,7 @@ func (r *Postgres) ClaimDueReminder(ctx context.Context) (DueReminder, bool, err
 	if err != nil {
 		return DueReminder{}, false, err
 	}
-	defer tx.Rollback(ctx)
+	defer rollbackTransaction(ctx, tx)
 	_, err = tx.Exec(ctx, `UPDATE consultation_reminders SET status='pending',updated_at=now() WHERE status='sending' AND updated_at < now()-interval '5 minutes'`)
 	if err != nil {
 		return DueReminder{}, false, err

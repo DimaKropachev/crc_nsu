@@ -21,6 +21,7 @@ type Claims struct {
 func NewTokenService(secret string, ttl time.Duration) *TokenService {
 	return &TokenService{secret: []byte(secret), ttl: ttl}
 }
+
 func (s *TokenService) Issue(userID uuid.UUID, vkID int64) (string, int64, error) {
 	now := time.Now()
 	claims := Claims{UserID: userID.String(), VKID: vkID, RegisteredClaims: jwt.RegisteredClaims{Issuer: "career-consultations", Subject: userID.String(), IssuedAt: jwt.NewNumericDate(now), ExpiresAt: jwt.NewNumericDate(now.Add(s.ttl)), ID: uuid.NewString()}}
@@ -28,6 +29,7 @@ func (s *TokenService) Issue(userID uuid.UUID, vkID int64) (string, int64, error
 	encoded, err := token.SignedString(s.secret)
 	return encoded, int64(s.ttl.Seconds()), err
 }
+
 func (s *TokenService) Parse(encoded string) (uuid.UUID, int64, error) {
 	claims := &Claims{}
 	token, err := jwt.ParseWithClaims(encoded, claims, func(t *jwt.Token) (any, error) {

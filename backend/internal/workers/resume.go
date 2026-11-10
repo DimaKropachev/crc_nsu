@@ -11,12 +11,13 @@ import (
 	"strings"
 	"time"
 
-	"career-consultations-backend/internal/ai"
-	"career-consultations-backend/internal/repository"
-	"career-consultations-backend/internal/storage"
 	"github.com/google/uuid"
 	"github.com/ledongthuc/pdf"
 	"go.uber.org/zap"
+
+	"career-consultations-backend/internal/ai"
+	"career-consultations-backend/internal/repository"
+	"career-consultations-backend/internal/storage"
 )
 
 type ResumeWorker struct {
@@ -29,6 +30,7 @@ type ResumeWorker struct {
 func NewResumeWorker(repo *repository.Postgres, files *storage.Local, provider ai.Provider, log *zap.Logger) *ResumeWorker {
 	return &ResumeWorker{repo: repo, files: files, provider: provider, log: log}
 }
+
 func (w *ResumeWorker) Run(ctx context.Context) {
 	ticker := time.NewTicker(2 * time.Second)
 	defer ticker.Stop()
@@ -41,6 +43,7 @@ func (w *ResumeWorker) Run(ctx context.Context) {
 		}
 	}
 }
+
 func (w *ResumeWorker) processOne(ctx context.Context) {
 	job, file, ok, err := w.repo.ClaimAnalysis(ctx)
 	if err != nil {
@@ -56,8 +59,11 @@ func (w *ResumeWorker) processOne(ctx context.Context) {
 		return
 	}
 	pathName := opened.Name()
-	opened.Close()
-	text, err := extractText(pathName, file.MIMEType)
+	if err := opened.Close(); err != nil {
+		w.fail(ctx, job.ID, job.AttemptCount, err)
+		return
+	}
+	text, err := extractText(pathName)
 	if err != nil {
 		w.fail(ctx, job.ID, job.AttemptCount, err)
 		return
@@ -76,6 +82,7 @@ func (w *ResumeWorker) processOne(ctx context.Context) {
 		w.log.Error("save resume analysis failed", zap.String("analysis_id", job.ID.String()), zap.Error(err))
 	}
 }
+
 func (w *ResumeWorker) fail(ctx context.Context, id uuid.UUID, attempt int, err error) {
 	retry := attempt < 3
 	if saveErr := w.repo.FailAnalysis(ctx, id, "ANALYSIS_FAILED", retry); saveErr != nil {
@@ -84,11 +91,11 @@ func (w *ResumeWorker) fail(ctx context.Context, id uuid.UUID, attempt int, err 
 	w.log.Warn("resume analysis failed", zap.String("analysis_id", id.String()), zap.Int("attempt", attempt), zap.Error(err))
 }
 
-func extractText(path, mimeType string) (text string, err error) {
+func extractText(path string) (text string, returnErr error) {
 	defer func() {
 		if recovered := recover(); recovered != nil {
 			text = ""
-			err = errors.New("document parser rejected the file")
+			returnErr = errors.New("document parser rejected the file")
 		}
 	}()
 	switch strings.ToLower(filepath.Ext(path)) {
@@ -97,7 +104,7 @@ func extractText(path, mimeType string) (text string, err error) {
 		if err != nil {
 			return "", err
 		}
-		defer z.Close()
+		defer func() { returnErr = errors.Join(returnErr, z.Close()) }()
 		for _, f := range z.File {
 			if f.UncompressedSize64 > 10<<20 {
 				return "", errors.New("DOCX entry exceeds extraction limit")
@@ -107,7 +114,7 @@ func extractText(path, mimeType string) (text string, err error) {
 				if err != nil {
 					return "", err
 				}
-				defer r.Close()
+				defer func() { returnErr = errors.Join(returnErr, r.Close()) }()
 				decoder := xml.NewDecoder(r)
 				var b strings.Builder
 				for {
@@ -139,7 +146,7 @@ func extractText(path, mimeType string) (text string, err error) {
 		if err != nil {
 			return "", err
 		}
-		defer f.Close()
+		defer func() { returnErr = errors.Join(returnErr, f.Close()) }()
 		plain, err := reader.GetPlainText()
 		if err != nil {
 			return "", err

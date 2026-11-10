@@ -6,6 +6,7 @@ import (
 	"encoding/base64"
 	"net/url"
 	"sort"
+	"strconv"
 	"strings"
 	"testing"
 	"time"
@@ -91,5 +92,31 @@ func TestVerifyLaunchParamsVKExample(t *testing.T) {
 	}
 	if values.Get("vk_user_id") != "494075" {
 		t.Fatalf("unexpected VK user id %q", values.Get("vk_user_id"))
+	}
+}
+
+func TestVerifyLaunchParamsTimestamp(t *testing.T) {
+	now := time.Unix(1700000000, 0)
+	for _, tc := range []struct {
+		name  string
+		ts    string
+		valid bool
+	}{
+		{"absent", "", true},
+		{"current", strconv.FormatInt(now.Unix(), 10), true},
+		{"old boundary", strconv.FormatInt(now.Add(-24*time.Hour).Unix(), 10), true},
+		{"stale", strconv.FormatInt(now.Add(-24*time.Hour-time.Second).Unix(), 10), false},
+		{"future boundary", strconv.FormatInt(now.Add(5*time.Minute).Unix(), 10), true},
+		{"future", strconv.FormatInt(now.Add(5*time.Minute+time.Second).Unix(), 10), false},
+		{"malformed", "invalid", false},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			values := url.Values{"vk_app_id": {"123"}, "vk_user_id": {"456"}, "vk_ts": {tc.ts}}
+			values.Set("sign", signTestValues(values, "timestamp-test-secret"))
+			_, err := VerifyLaunchParams(values.Encode(), "123", "timestamp-test-secret", now)
+			if (err == nil) != tc.valid {
+				t.Fatalf("VerifyLaunchParams error = %v, valid = %v", err, tc.valid)
+			}
+		})
 	}
 }

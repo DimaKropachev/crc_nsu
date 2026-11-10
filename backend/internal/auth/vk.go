@@ -65,16 +65,21 @@ func VerifyLaunchParams(raw, appID, secret string, now time.Time) (url.Values, e
 		return nil, ErrInvalidVKSignature
 	}
 
-	// Current clients may provide vk_ts. When present, reject stale/future launch data.
-	if ts := values.Get("vk_ts"); ts != "" {
-		seconds, parseErr := strconv.ParseInt(ts, 10, 64)
-		if parseErr != nil {
-			return nil, ErrInvalidVKSignature
-		}
-		age := now.Sub(time.Unix(seconds, 0))
-		if age > 24*time.Hour || age < -5*time.Minute {
-			return nil, ErrInvalidVKSignature
-		}
+	if !validLaunchTimestamp(values.Get("vk_ts"), now) {
+		return nil, ErrInvalidVKSignature
 	}
 	return values, nil
+}
+
+// Current clients may provide vk_ts. When present, reject stale/future launch data.
+func validLaunchTimestamp(ts string, now time.Time) bool {
+	if ts == "" {
+		return true
+	}
+	seconds, err := strconv.ParseInt(ts, 10, 64)
+	if err != nil {
+		return false
+	}
+	age := now.Sub(time.Unix(seconds, 0))
+	return age <= 24*time.Hour && age >= -5*time.Minute
 }

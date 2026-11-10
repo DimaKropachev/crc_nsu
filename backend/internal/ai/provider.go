@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
 	"net/http"
@@ -33,7 +34,8 @@ type OpenAICompatible struct {
 func NewOpenAICompatible(baseURL, key, model string, timeout time.Duration) *OpenAICompatible {
 	return &OpenAICompatible{baseURL: strings.TrimRight(baseURL, "/"), apiKey: key, model: model, client: &http.Client{Timeout: timeout}}
 }
-func (p *OpenAICompatible) Analyze(ctx context.Context, resumeText string) (Result, error) {
+
+func (p *OpenAICompatible) Analyze(ctx context.Context, resumeText string) (result Result, err error) {
 	if strings.TrimSpace(resumeText) == "" {
 		return Result{}, fmt.Errorf("resume text is empty")
 	}
@@ -56,7 +58,7 @@ func (p *OpenAICompatible) Analyze(ctx context.Context, resumeText string) (Resu
 	if err != nil {
 		return Result{}, err
 	}
-	defer resp.Body.Close()
+	defer func() { err = errors.Join(err, resp.Body.Close()) }()
 	data, err := io.ReadAll(io.LimitReader(resp.Body, 2<<20))
 	if err != nil {
 		return Result{}, err
@@ -77,7 +79,6 @@ func (p *OpenAICompatible) Analyze(ctx context.Context, resumeText string) (Resu
 	if len(envelope.Choices) == 0 {
 		return Result{}, fmt.Errorf("AI provider response has no choices")
 	}
-	var result Result
 	if err := json.Unmarshal([]byte(envelope.Choices[0].Message.Content), &result); err != nil {
 		return Result{}, fmt.Errorf("invalid AI JSON response: %w", err)
 	}
