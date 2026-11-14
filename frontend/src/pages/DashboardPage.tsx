@@ -33,15 +33,20 @@ function StudentDashboard() {
           <ArrowRight size={18} />
         </button>
       </div>
-      <div className="hero-logo-wrapper">
-        <img src={`${import.meta.env.BASE_URL}logo.jpg`} alt="Логотип НГУ" className="hero-logo-img" />
+      
+      <div className="hero-logo-container">
+        <img src={`${import.meta.env.BASE_URL}logo.png`} alt="НГУ" className="hero-logo-img" />
+        <div className="hero-logo-text">
+          <span className="hero-logo-title">Центр развития<br/>карьеры</span>
+          <span className="hero-logo-sub">НГУ</span>
+        </div>
       </div>
     </section>
 
     <div className="section-heading"><div><h2>Твои инструменты</h2></div></div>
     <div className="feature-grid">
       <button className="feature-card featured-blue" onClick={() => navigate('/booking')}><span className="feature-card-top"><IconTile icon={CalendarDays} tone="blue" size="lg" /><span className="feature-arrow"><ArrowUpRight size={19} /></span></span><span className="feature-title">Карьерная консультация</span><span className="feature-desc">Обсуди карьерную цель, подготовься к интервью или выбери направление развития.</span><span className="feature-bottom"><span>Выбрать консультанта</span><ChevronRight size={16} /></span></button>
-      <button className="feature-card featured-violet" onClick={() => navigate('/resume')}><span className="feature-card-top"><IconTile icon={Sparkles} tone="violet" size="lg" /><span className="feature-arrow"><ArrowUpRight size={19} /></span></span><span className="feature-title">Анализ резюме с ИИ</span><span className="feature-desc">Получи конкретные рекомендации и сделай резюме сильнее.</span><span className="feature-bottom"><span>Проверить резюме</span><ChevronRight size={16} /></span></button>
+      <button className="feature-card featured-violet" onClick={() => navigate('/resume')}><span className="feature-card-top"><IconTile icon={Sparkles} tone="violet" size="lg" /><span className="feature-arrow"><ArrowUpRight size={19} /></span></span><span className="feature-title">Анализ резюме</span><span className="feature-desc">Получи конкретные рекомендации и сделай резюме сильнее.</span><span className="feature-bottom"><span>Проверить резюме</span><ChevronRight size={16} /></span></button>
       <button type="button" className="feature-card is-disabled" disabled aria-disabled="true"><span className="wip-badge">В разработке</span><span className="feature-card-top"><IconTile icon={Users} tone="green" size="lg" /><span className="feature-arrow"><ArrowUpRight size={19} /></span></span><span className="feature-title">Волонтёрство</span><span className="feature-desc">Найди проект, попробуй себя в новой роли и получи полезный опыт.</span><span className="feature-bottom"><span>Скоро откроем</span><ChevronRight size={16} /></span></button>
       <button type="button" className="feature-card is-disabled" disabled aria-disabled="true"><span className="wip-badge">В разработке</span><span className="feature-card-top"><IconTile icon={FileText} tone="amber" size="lg" /><span className="feature-arrow"><ArrowUpRight size={19} /></span></span><span className="feature-title">Стипендии и стажировки</span><span className="feature-desc">Возможности для учёбы, практики и первых шагов в профессии.</span><span className="feature-bottom"><span>Скоро откроем</span><ChevronRight size={16} /></span></button>
     </div>

@@ -261,45 +261,57 @@ html[data-theme="dark"] .topbar {
   margin-bottom: 24px !important;
 }
 
-/* Логотип в Hero — справа */
-.hero-logo-wrapper {
+/* Контейнер логотипа и текста */
+.hero-logo-container {
   display: flex !important;
   align-items: center !important;
-  justify-content: center !important;
-  max-width: 40% !important;
-  flex-shrink: 0;
-  position: relative;
-  z-index: 1 !important;
+  gap: 24px !important; /* Расстояние между деревом и текстом */
+  z-index: 2 !important;
+  padding-right: 20px !important;
 }
+
+/* Дерево */
 .hero-logo-img {
-  max-height: 180px !important; /* Ограничиваем высоту картинки */
-  max-width: 100% !important;
+  max-height: 140px !important;
   width: auto !important;
   object-fit: contain !important;
-  border-radius: 12px; /* Слегка скругляем углы картинки, если она квадратная */
+  filter: drop-shadow(0px 10px 20px rgba(0, 0, 0, 0.08)) !important;
 }
 
-/* Фон в тёмной теме */
-html[data-theme="dark"] .welcome-hero {
-  background: linear-gradient(125deg, #1b2140 0%, #221c3c 50%, #172033 100%) !important;
+/* Текст */
+.hero-logo-text {
+  display: flex !important;
+  flex-direction: column !important;
+  justify-content: center !important;
 }
 
-/* На узких экранах логотип уходит под текст */
-@media (max-width: 760px) {
-  .welcome-hero {
-    flex-direction: column !important;
-    align-items: flex-start !important;
-    gap: 22px !important;
-    padding: 25px 22px !important;
-  }
-  .hero-content {
-    max-width: 100% !important;
-  }
-  .hero-logo-wrapper {
-    max-width: 100% !important;
-    align-self: flex-start !important;
-  }
-  .hero-logo-img {
-    max-height: 110px !important;
-  }
+.hero-logo-title {
+  font-family: 'Manrope', sans-serif !important;
+  font-size: 18px !important;
+  font-weight: 800 !important;
+  color: var(--ink) !important;
+  line-height: 1.25 !important;
+}
+
+.hero-logo-sub {
+  font-size: 14px !important;
+  font-weight: 800 !important;
+  color: var(--blue) !important;
+  letter-spacing: 0.1em !important;
+  margin-top: 8px !important;
+}
+
+/* Тёмная тема */
+html[data-theme="dark"] .hero-logo-img {
+  filter: drop-shadow(0px 10px 30px rgba(99, 102, 241, 0.3)) !important;
+}
+html[data-theme="dark"] .hero-logo-title {
+  color: #ffffff !important;
+}
+html[data-theme="dark"] .hero-logo-sub {
+  color: #a855f7 !important;
+}
+
+@media (max-width: 900px) {
+  .hero-logo-container { display: none !important; }
 }
